@@ -1,0 +1,7 @@
+spotify_secrets.py
+.cache*
+lyrics_cache.json
+remake playlist.py
+__pycache__/
+*.pyc
+.venv/
