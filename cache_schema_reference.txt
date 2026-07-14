@@ -1,0 +1,26 @@
+LYRICS CACHE SCRUB FIELDS AND STATUS REFERENCE
+========================================================================
+
+Original fields
+---------------
+Every original metadata field is preserved, including trackName, artistName,
+albumName, lrclibAlbumName, durationMS, cachedAt, and unknown future fields.
+The redundant syncedLyrics field is removed after being copied to rawSyncedLyrics.
+
+Added fields
+------------
+rawSyncedLyrics: preserved original synced lyric string.
+displaySyncedLyrics: scrubbed display-safe lyric string.
+displayStatus: overall display compatibility status.
+unsupportedRatio: unsupported visible characters / total visible characters.
+unsupportedLineCount: number of lines containing unsupported characters.
+totalLyricLineCount: number of synced lyric lines.
+scrubVersion: version of the scrub rules used.
+
+Status values
+-------------
+valid: Less than 10% of visible lyric characters are unsupported.
+partially_supported: 10% to 25% of visible lyric characters are unsupported.
+unsupported_language: More than 25% of visible lyric characters are unsupported.
+invalid_format: The lyrics exist, but every non-empty line lacks a valid [mm:ss.xx] timestamp.
+missing: No usable synced lyric string is present.

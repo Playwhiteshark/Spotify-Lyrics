@@ -4,6 +4,10 @@ import requests
 import time
 import random
 import json
+from parser_v1 import (
+    ScrubSyncedLyrics,
+    CreateLyricsAndTimestampLists
+)
 
 # ============ CONSTANTS ============
 
@@ -20,6 +24,8 @@ SCOPE = "user-read-playback-state"
 
 LCRLIBURL = "https://lrclib.net/api/get"
 
+CACHE_PATH = "cache/lyrics_cache.json"
+
 spAuth = SpotifyOAuth(
     client_id = SPOTIPY_CLIENT_ID,
     client_secret = SPOTIPY_CLIENT_SECRET,
@@ -30,7 +36,7 @@ spAuth = SpotifyOAuth(
 sp = spotipy.Spotify(auth_manager=spAuth)
 
 LYRIC_INTERVAL = 0.1      # 100 ms
-SPOTIFY_INTERVAL = 2.0    # 5 seconds
+SPOTIFY_INTERVAL = 2.0    # 2 seconds
 TIME_RESYNC_THRESHOLD_MS = 500
 LYRIC_RETRY_INTERVAL = 5.0
 MAX_LYRIC_LOAD_ATTEMPTS = 6
@@ -50,7 +56,9 @@ IDLE_MESSAGES = [
     "Welcome to the Bertmobile!",
     "Imagine a cool animation here.",
     "No bangers detected.",
-    "It's like a fleck!"
+    "It's like a fleck!",
+    "I just an Eva...",
+    "Watch Dexter!"
 ]
 
 # ============ VARIABLES ============
@@ -158,48 +166,13 @@ def GetLCRLIBLyrics(params):
 
     return data.get("syncedLyrics")
 
-
-def CreateLyricsAndTimestampLists(lyrics):
-    timestampOutput = [0]
-    lyricsOutput = [""]
-
-    if lyrics is None:
-        return timestampOutput, lyricsOutput
-
-    lyrics = lyrics.splitlines()
-
-    for line in lyrics:
-        timeStart = line.find("[")
-        timeEnd = line.find("]")
-
-        if timeStart == -1 or timeEnd == -1:
-            continue
-
-        try:
-            timestamp = line[timeStart + 1:timeEnd]
-            minutes, seconds = timestamp.split(":")
-
-            minutes = int(minutes)
-            seconds = float(seconds)
-            lineTime = int((minutes * 60 + seconds) * 1000)
-
-            lineText = line[timeEnd + 1:].lstrip()
-
-            timestampOutput.append(lineTime)
-            lyricsOutput.append(lineText)
-
-        except ValueError:
-            continue
-
-    return timestampOutput, lyricsOutput
-
 def SaveCache(cacheDict):
-    with open("lyrics_cache.json", "w", encoding="utf-8") as cacheFile:
+    with open(CACHE_PATH, "w", encoding="utf-8") as cacheFile:
         json.dump(cacheDict, cacheFile, indent=4)
 
 def LoadCache():
     try:
-        with open("lyrics_cache.json", "r", encoding="utf-8") as cacheFile:
+        with open(CACHE_PATH, "r", encoding="utf-8") as cacheFile:
             contents = json.load(cacheFile)
             return contents
     except FileNotFoundError:
@@ -207,37 +180,110 @@ def LoadCache():
 
 def GetLyricsFromCache(spotifyState):
     global lyricsCache
+
     trackID = spotifyState["trackID"]
     trackData = lyricsCache.get(trackID)
-    if trackData is not None:
-        return trackData["syncedLyrics"]
-    else:
+
+    return trackData
+
+def SaveLyricsToCache(spotifyState, rawSyncedLyrics):
+    global lyricsCache
+
+    scrubbedLyricsData = ScrubSyncedLyrics(rawSyncedLyrics)
+
+    lyricsCache[spotifyState["trackID"]] = {
+        "trackName": spotifyState["trackName"],
+        "artistName": spotifyState["artistName"],
+        "albumName": spotifyState["albumName"],
+        "lrclibAlbumName": spotifyState["albumName"],
+        "durationMS": spotifyState["durationMS"],
+        "cachedAt": time.time(),
+
+        **scrubbedLyricsData
+    }
+
+    SaveCache(lyricsCache)
+
+    return lyricsCache[spotifyState["trackID"]]
+
+def EnsureTrackDataIsScrubbed(trackData):
+    if trackData is None:
         return None
 
-def SaveLyricsToCache(spotifyState, syncedLyrics):
-    lyricsCache[spotifyState["trackID"]] = {"syncedLyrics": syncedLyrics}
-    SaveCache(lyricsCache)
+    if (
+        trackData.get("scrubVersion") == 1
+        and "displaySyncedLyrics" in trackData
+    ):
+        return trackData
+
+    rawSyncedLyrics = trackData.get("rawSyncedLyrics")
+
+    if rawSyncedLyrics is None:
+        rawSyncedLyrics = trackData.get("syncedLyrics")
+
+    scrubbedData = ScrubSyncedLyrics(rawSyncedLyrics)
+
+    updatedTrackData = dict(trackData)
+    updatedTrackData.pop("syncedLyrics", None)
+    updatedTrackData.update(scrubbedData)
+
+    return updatedTrackData
         
 
 def LoadLyricsForSpotifyState(spotifyState):
     global lyricsCache
 
-    # Attempt to get it from the cache.
-    syncedLyrics = GetLyricsFromCache(spotifyState)
+    trackData = GetLyricsFromCache(spotifyState)
 
-    # If not in cache, get it and save it to cache.
-    if syncedLyrics is None:
-        syncedLyrics = GetLCRLIBLyrics(spotifyState["lrclibParams"])
+    # Cached, check if scrubbed.
+    if trackData is not None:
+        scrubbedTrackData = EnsureTrackDataIsScrubbed(trackData)
 
-        if syncedLyrics is None:
+        if scrubbedTrackData != trackData:
+            lyricsCache[spotifyState["trackID"]] = scrubbedTrackData
+            SaveCache(lyricsCache)
+
+        trackData = scrubbedTrackData
+
+    # The song is not cached, so fetch and scrub it.
+    if trackData is None:
+        rawSyncedLyrics = GetLCRLIBLyrics(
+            spotifyState["lrclibParams"]
+        )
+
+        if rawSyncedLyrics is None:
             return [0], [""], 0, False
-        else:
-            SaveLyricsToCache(spotifyState, syncedLyrics)
 
-    timestampList, lyricsList = CreateLyricsAndTimestampLists(syncedLyrics)
-    currentLyricIndex = GetCurrentLyricIndex(timestampList, GetSongTime(spotifyState))
+        trackData = SaveLyricsToCache(
+            spotifyState,
+            rawSyncedLyrics
+        )
 
-    return timestampList, lyricsList, currentLyricIndex, True
+    displayStatus = trackData.get("displayStatus", "valid")
+
+    if displayStatus == "unsupported_language":
+        return [0], ["I can't understand that yet!"], 0, True
+
+    displaySyncedLyrics = trackData.get("displaySyncedLyrics")
+
+    if displaySyncedLyrics is None:
+        return [0], [""], 0, False
+
+    timestampList, lyricsList = CreateLyricsAndTimestampLists(
+        displaySyncedLyrics
+    )
+
+    currentLyricIndex = GetCurrentLyricIndex(
+        timestampList,
+        GetSongTime(spotifyState)
+    )
+
+    return (
+        timestampList,
+        lyricsList,
+        currentLyricIndex,
+        True
+    )
 
 
 def midpoint(a, b):
