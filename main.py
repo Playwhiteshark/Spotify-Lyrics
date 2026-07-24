@@ -78,7 +78,6 @@ def PrintStatusOnce(statusText):
         print(statusText)
         lastDisplayState = statusText
 
-
 def GetInvalidSpotifyState(stateType, error=None):
     return {
         "stateType": stateType,
@@ -95,7 +94,6 @@ def GetInvalidSpotifyState(stateType, error=None):
         "lrclibParams": None,
         "error": error
     }
-
 
 def GetSpotifyState():
     try:
@@ -145,7 +143,6 @@ def GetSpotifyState():
 
     except Exception as error:
         return GetInvalidSpotifyState("BAD_TRACK_DATA", error)
-
 
 def GetLCRLIBLyrics(params):
     if params is None:
@@ -229,7 +226,6 @@ def EnsureTrackDataIsScrubbed(trackData):
 
     return updatedTrackData
         
-
 def LoadLyricsForSpotifyState(spotifyState):
     global lyricsCache
 
@@ -285,10 +281,8 @@ def LoadLyricsForSpotifyState(spotifyState):
         True
     )
 
-
 def midpoint(a, b):
     return a + (b - a) // 2
-
 
 def GetCurrentLyricIndex(list, target):
     left = 0
@@ -312,12 +306,10 @@ def GetCurrentLyricIndex(list, target):
 
     return bestIndex
 
-
 def GetEstimatedLyricIndex(currentIndex, timestamps, currentTime):
     while currentIndex + 1 < len(timestamps) and currentTime >= timestamps[currentIndex + 1]:
         currentIndex += 1
     return currentIndex
-
 
 def GetSongTime(spotifyState):
     if spotifyState["isPlaying"] == False:
@@ -419,8 +411,7 @@ def displayLyrics(lyric):
     for line in lines:
         print(line)
 
-
-# ============== MAIN ===============
+# =============== MAIN ===============
 
 spotifyState = GetSpotifyState()
 lyricsCache = LoadCache() #Key = trackID, data is another dict containing lyrics only for now, but can contian other stuff
@@ -470,7 +461,6 @@ while True:
 
             last_lyric_update = now
 
-
     if now - last_spotify_check >= SPOTIFY_INTERVAL:
         oldSpotifyState = spotifyState
         newSpotifyState = GetSpotifyState()
@@ -487,7 +477,6 @@ while True:
             lyricsFailedPermanently = False
 
             PrintStatusOnce(spotifyState["stateType"])
-
 
         elif oldSpotifyState["isValidTrack"] == False or newSpotifyState["trackID"] != oldSpotifyState["trackID"]:
             spotifyState = newSpotifyState
@@ -511,7 +500,6 @@ while True:
             else:
                 PrintStatusOnce("LYRICS_NOT_LOADED_RETRYING")
                 nextLyricRetryTime = time.perf_counter() + LYRIC_RETRY_INTERVAL
-
 
         else:
             if hasLyrics == False and lyricsFailedPermanently == False:
@@ -544,8 +532,6 @@ while True:
 
             spotifyState = newSpotifyState
 
-
         last_spotify_check = now
-
 
     time.sleep(0.01)
