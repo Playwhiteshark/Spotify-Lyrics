@@ -158,7 +158,7 @@ SUPPORTED_CHARACTERS = set(
 )
 
 
-def IsInvisibleFormattingCharacter(character):
+def is_invisible_formatting_character(character):
     if character == "\n":
         return False
 
@@ -181,7 +181,7 @@ def IsInvisibleFormattingCharacter(character):
     return False
 
 
-def StripLatinAccents(text):
+def strip_latin_accents(text):
     output = ""
 
     for character in text:
@@ -189,25 +189,25 @@ def StripLatinAccents(text):
             output += SPECIAL_LATIN_REPLACEMENTS[character]
             continue
 
-        characterName = unicodedata.name(character, "")
+        character_name = unicodedata.name(character, "")
 
-        if "LATIN" in characterName:
+        if "LATIN" in character_name:
             decomposed = unicodedata.normalize("NFKD", character)
 
-            for decomposedCharacter in decomposed:
-                if not unicodedata.combining(decomposedCharacter):
-                    output += decomposedCharacter
+            for decomposed_character in decomposed:
+                if not unicodedata.combining(decomposed_character):
+                    output += decomposed_character
         else:
             output += character
 
     return output
 
 
-def CapRepeatedCharacters(text):
-    def CapLetterRun(match):
+def cap_repeated_characters(text):
+    def cap_letter_run(match):
         return match.group(0)[:3]
 
-    text = REPEATED_LETTER_PATTERN.sub(CapLetterRun, text)
+    text = REPEATED_LETTER_PATTERN.sub(cap_letter_run, text)
     text = REPEATED_EXCLAMATION_PATTERN.sub("!!!", text)
     text = REPEATED_QUESTION_PATTERN.sub("???", text)
     text = REPEATED_PERIOD_PATTERN.sub("...", text)
@@ -215,190 +215,190 @@ def CapRepeatedCharacters(text):
     return text
 
 
-def ReplaceUnsupportedRuns(text):
+def replace_unsupported_runs(text):
     output = ""
-    inUnsupportedRun = False
+    in_unsupported_run = False
 
-    supportedVisibleCount = 0
-    unsupportedVisibleCount = 0
+    supported_visible_count = 0
+    unsupported_visible_count = 0
 
     for character in text:
         if character in SUPPORTED_CHARACTERS:
             output += character
-            inUnsupportedRun = False
+            in_unsupported_run = False
 
             if not character.isspace():
-                supportedVisibleCount += 1
+                supported_visible_count += 1
 
         elif character.isspace():
             output += " "
-            inUnsupportedRun = False
+            in_unsupported_run = False
 
         else:
-            unsupportedVisibleCount += 1
+            unsupported_visible_count += 1
 
-            if not inUnsupportedRun:
+            if not in_unsupported_run:
                 output += UNSUPPORTED_CHARACTER
-                inUnsupportedRun = True
+                in_unsupported_run = True
 
     output = WHITESPACE_PATTERN.sub(" ", output).strip()
 
-    return output, supportedVisibleCount, unsupportedVisibleCount
+    return output, supported_visible_count, unsupported_visible_count
 
 
-def CleanLyricText(text):
+def clean_lyric_text(text):
     # Remove enhanced-LRC word timestamps if one ever appears.
     text = INLINE_TIMESTAMP_PATTERN.sub("", text)
 
-    cleanCharacters = []
+    clean_characters = []
 
     for character in text:
-        if not IsInvisibleFormattingCharacter(character):
-            cleanCharacters.append(character)
+        if not is_invisible_formatting_character(character):
+            clean_characters.append(character)
 
-    text = "".join(cleanCharacters)
+    text = "".join(clean_characters)
 
     for original, replacement in DIRECT_REPLACEMENTS.items():
         text = text.replace(original, replacement)
 
-    for musicSymbol in MUSIC_SYMBOLS:
-        text = text.replace(musicSymbol, "")
+    for music_symbol in MUSIC_SYMBOLS:
+        text = text.replace(music_symbol, "")
 
-    text = StripLatinAccents(text)
-    text = CapRepeatedCharacters(text)
+    text = strip_latin_accents(text)
+    text = cap_repeated_characters(text)
     text = WHITESPACE_PATTERN.sub(" ", text).strip()
 
-    safeText, supportedCount, unsupportedCount = ReplaceUnsupportedRuns(text)
+    safe_text, supported_count, unsupported_count = replace_unsupported_runs(text)
 
-    return safeText, supportedCount, unsupportedCount
+    return safe_text, supported_count, unsupported_count
 
 
-def ScrubSyncedLyrics(rawSyncedLyrics):
+def scrub_synced_lyrics(raw_synced_lyrics):
     """
     Clean raw LRCLIB lyrics before caching them.
 
     Returns a dictionary containing:
-        rawSyncedLyrics
-        displaySyncedLyrics
-        displayStatus
-        unsupportedRatio
-        unsupportedLineCount
-        totalLyricLineCount
-        scrubVersion
+        raw_synced_lyrics
+        display_synced_lyrics
+        display_status
+        unsupported_ratio
+        unsupported_line_count
+        total_lyric_line_count
+        scrub_version
     """
 
-    if rawSyncedLyrics is None:
+    if raw_synced_lyrics is None:
         return {
-            "rawSyncedLyrics": None,
-            "displaySyncedLyrics": None,
-            "displayStatus": "missing",
-            "unsupportedRatio": 0.0,
-            "unsupportedLineCount": 0,
-            "totalLyricLineCount": 0,
-            "scrubVersion": SCRUB_VERSION
+            "raw_synced_lyrics": None,
+            "display_synced_lyrics": None,
+            "display_status": "missing",
+            "unsupported_ratio": 0.0,
+            "unsupported_line_count": 0,
+            "total_lyric_line_count": 0,
+            "scrub_version": SCRUB_VERSION
         }
 
-    outputLines = []
+    output_lines = []
 
-    supportedVisibleCount = 0
-    unsupportedVisibleCount = 0
-    unsupportedLineCount = 0
+    supported_visible_count = 0
+    unsupported_visible_count = 0
+    unsupported_line_count = 0
 
-    for rawLine in rawSyncedLyrics.splitlines():
+    for raw_line in raw_synced_lyrics.splitlines():
         # Remove LRC metadata such as [ti:], [ar:] and [offset:].
-        if LRC_METADATA_PATTERN.match(rawLine):
+        if LRC_METADATA_PATTERN.match(raw_line):
             continue
 
-        timestampMatch = LEADING_TIMESTAMP_PATTERN.match(rawLine)
+        timestamp_match = LEADING_TIMESTAMP_PATTERN.match(raw_line)
 
-        if timestampMatch is None:
+        if timestamp_match is None:
             # Ignore malformed non-timed lines rather than caching them as lyrics.
             continue
 
-        seconds = float(timestampMatch.group("seconds"))
+        seconds = float(timestamp_match.group("seconds"))
 
         if seconds >= 60:
             continue
 
-        timestampText = timestampMatch.group(0).strip()
-        lyricText = rawLine[timestampMatch.end():]
+        timestamp_text = timestamp_match.group(0).strip()
+        lyric_text = raw_line[timestamp_match.end():]
 
-        cleanText, lineSupportedCount, lineUnsupportedCount = CleanLyricText(
-            lyricText
+        clean_text, line_supported_count, line_unsupported_count = clean_lyric_text(
+            lyric_text
         )
 
-        supportedVisibleCount += lineSupportedCount
-        unsupportedVisibleCount += lineUnsupportedCount
+        supported_visible_count += line_supported_count
+        unsupported_visible_count += line_unsupported_count
 
-        if lineUnsupportedCount > 0:
-            unsupportedLineCount += 1
+        if line_unsupported_count > 0:
+            unsupported_line_count += 1
 
         # Preserve the timestamp even when the lyric is blank.
-        if cleanText == "":
-            outputLines.append(timestampText)
+        if clean_text == "":
+            output_lines.append(timestamp_text)
         else:
-            outputLines.append(timestampText + " " + cleanText)
+            output_lines.append(timestamp_text + " " + clean_text)
 
-    totalVisibleCount = supportedVisibleCount + unsupportedVisibleCount
+    total_visible_count = supported_visible_count + unsupported_visible_count
 
-    if totalVisibleCount == 0:
-        unsupportedRatio = 0.0
+    if total_visible_count == 0:
+        unsupported_ratio = 0.0
     else:
-        unsupportedRatio = unsupportedVisibleCount / totalVisibleCount
+        unsupported_ratio = unsupported_visible_count / total_visible_count
 
-    if unsupportedRatio > UNSUPPORTED_LANGUAGE_THRESHOLD:
-        displayStatus = "unsupported_language"
-    elif unsupportedRatio >= PARTIALLY_SUPPORTED_THRESHOLD:
-        displayStatus = "partially_supported"
+    if unsupported_ratio > UNSUPPORTED_LANGUAGE_THRESHOLD:
+        display_status = "unsupported_language"
+    elif unsupported_ratio >= PARTIALLY_SUPPORTED_THRESHOLD:
+        display_status = "partially_supported"
     else:
-        displayStatus = "valid"
+        display_status = "valid"
 
     return {
-        "rawSyncedLyrics": rawSyncedLyrics,
-        "displaySyncedLyrics": "\n".join(outputLines),
-        "displayStatus": displayStatus,
-        "unsupportedRatio": round(unsupportedRatio, 6),
-        "unsupportedLineCount": unsupportedLineCount,
-        "totalLyricLineCount": len(outputLines),
-        "scrubVersion": SCRUB_VERSION
+        "raw_synced_lyrics": raw_synced_lyrics,
+        "display_synced_lyrics": "\n".join(output_lines),
+        "display_status": display_status,
+        "unsupported_ratio": round(unsupported_ratio, 6),
+        "unsupported_line_count": unsupported_line_count,
+        "total_lyric_line_count": len(output_lines),
+        "scrub_version": SCRUB_VERSION
     }
 
 
-def CreateLyricsAndTimestampLists(displaySyncedLyrics):
+def create_lyrics_and_timestamp_lists(display_synced_lyrics):
     """
     Parse already scrubbed lyrics for playback.
 
     Returns:
-        timestampList
-        lyricsList
+        timestamp_list
+        lyrics_list
     """
 
-    timestampOutput = [0]
-    lyricsOutput = [""]
+    timestamp_output = [0]
+    lyrics_output = [""]
 
-    if displaySyncedLyrics is None:
-        return timestampOutput, lyricsOutput
+    if display_synced_lyrics is None:
+        return timestamp_output, lyrics_output
 
-    for line in displaySyncedLyrics.splitlines():
-        timestampMatch = LEADING_TIMESTAMP_PATTERN.match(line)
+    for line in display_synced_lyrics.splitlines():
+        timestamp_match = LEADING_TIMESTAMP_PATTERN.match(line)
 
-        if timestampMatch is None:
+        if timestamp_match is None:
             continue
 
         try:
-            minutes = int(timestampMatch.group("minutes"))
-            seconds = float(timestampMatch.group("seconds"))
+            minutes = int(timestamp_match.group("minutes"))
+            seconds = float(timestamp_match.group("seconds"))
 
             if seconds >= 60:
                 continue
 
-            lineTimeMS = int((minutes * 60 + seconds) * 1000)
-            lineText = line[timestampMatch.end():].lstrip()
+            line_time_ms = int((minutes * 60 + seconds) * 1000)
+            line_text = line[timestamp_match.end():].lstrip()
 
-            timestampOutput.append(lineTimeMS)
-            lyricsOutput.append(lineText)
+            timestamp_output.append(line_time_ms)
+            lyrics_output.append(line_text)
 
         except ValueError:
             continue
 
-    return timestampOutput, lyricsOutput
+    return timestamp_output, lyrics_output

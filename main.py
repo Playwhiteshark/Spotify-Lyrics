@@ -1,39 +1,18 @@
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-import requests
 import time
 import random
-import json
-from parser_v1 import (
-    ScrubSyncedLyrics,
-    CreateLyricsAndTimestampLists
+
+from spotify_handler import get_spotify_state, get_song_time
+
+from lyrics_handler import (
+    load_cache,
+    load_lyrics_for_spotify_state,
+    get_current_lyric_index
 )
 
+from formatter import format_text_to_bounds
+from display.lcd import write_lines_LCD
+
 # ============ CONSTANTS ============
-
-try:
-    from spotify_secrets import SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET
-except ImportError:
-    raise ImportError(
-        "Missing spotify_secrets.py. Copy spotify_secrets_example.py, "
-        "rename it to spotify_secrets.py, and add your Spotify client ID and secret."
-    )
-
-SPOTIPY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
-SCOPE = "user-read-playback-state"
-
-LCRLIBURL = "https://lrclib.net/api/get"
-
-CACHE_PATH = "cache/lyrics_cache.json"
-
-spAuth = SpotifyOAuth(
-    client_id = SPOTIPY_CLIENT_ID,
-    client_secret = SPOTIPY_CLIENT_SECRET,
-    redirect_uri = SPOTIPY_REDIRECT_URI,
-    scope = SCOPE
-    )
-
-sp = spotipy.Spotify(auth_manager=spAuth)
 
 LYRIC_INTERVAL = 0.1      # 100 ms
 SPOTIFY_INTERVAL = 2.0    # 2 seconds
@@ -63,475 +42,257 @@ IDLE_MESSAGES = [
 
 # ============ VARIABLES ============
 
-lastDisplayState = ""
-idleCandidateStartTime = None
-idleModeActive = False
-lastIdleMessageTime = 0
-lastIdleMessage = ""
+last_display_state = ""
+current_mode = "RUNNING"
+idle_start_time = None
+last_idle_message_time = 0
+last_idle_message = ""
 
 # =========== FUNCTIONS ===========
 
-def PrintStatusOnce(statusText):
-    global lastDisplayState
+def print_status_once(status_text):
+    global last_display_state
 
-    if statusText != lastDisplayState:
-        print(statusText)
-        lastDisplayState = statusText
+    if status_text != last_display_state:
+        print(status_text)
+        last_display_state = status_text
 
-def GetInvalidSpotifyState(stateType, error=None):
-    return {
-        "stateType": stateType,
-        "isValidTrack": False,
-        "trackID": None,
-        "artistName": None,
-        "trackName": None,
-        "albumName": None,
-        "durationMS": 0,
-        "durationS": 0,
-        "progressMS": 0,
-        "requestTime": time.perf_counter(),
-        "isPlaying": False,
-        "lrclibParams": None,
-        "error": error
-    }
 
-def GetSpotifyState():
-    try:
-        current = sp.current_playback()
-    except Exception as error:
-        return GetInvalidSpotifyState("SPOTIFY_ERROR", error)
-
-    if current is None:
-        return GetInvalidSpotifyState("NO_ACTIVE_SESSION")
-
-    item = current.get("item")
-
-    if item is None:
-        return GetInvalidSpotifyState("NO_ITEM")
-
-    if item.get("type") != "track":
-        return GetInvalidSpotifyState("NOT_TRACK")
-
-    try:
-        artistName = item["artists"][0]["name"]
-        trackName = item.get("name")
-        albumName = item.get("album")["name"]
-        durationMS = item["duration_ms"]
-
-        # SPOTIFYSTATE FORMAT:
-        return {
-            "stateType": "TRACK",
-            "isValidTrack": True,
-            "trackID": item["id"],
-            "artistName": artistName,
-            "trackName": trackName,
-            "albumName": albumName,
-            "durationMS": durationMS,
-            "durationS": durationMS // 1000,
-            "progressMS": current.get("progress_ms"),
-            "requestTime": time.perf_counter(),
-            "isPlaying": current.get("is_playing"),
-
-            "lrclibParams": {
-                "artist_name": artistName,
-                "track_name": trackName,
-                "album_name": albumName,
-                "duration": durationMS // 1000
-            },
-            "error": None
-        }
-
-    except Exception as error:
-        return GetInvalidSpotifyState("BAD_TRACK_DATA", error)
-
-def GetLCRLIBLyrics(params):
-    if params is None:
-        return None
-
-    try:
-        lrclibResponse = requests.get(LCRLIBURL, params=params, timeout=7)
-    except requests.RequestException:
-        return None
-
-    if lrclibResponse.status_code != 200:
-        return None
-
-    try:
-        data = lrclibResponse.json()
-    except ValueError:
-        return None
-
-    return data.get("syncedLyrics")
-
-def SaveCache(cacheDict):
-    with open(CACHE_PATH, "w", encoding="utf-8") as cacheFile:
-        json.dump(cacheDict, cacheFile, indent=4)
-
-def LoadCache():
-    try:
-        with open(CACHE_PATH, "r", encoding="utf-8") as cacheFile:
-            contents = json.load(cacheFile)
-            return contents
-    except FileNotFoundError:
-        return {}
-
-def GetLyricsFromCache(spotifyState):
-    global lyricsCache
-
-    trackID = spotifyState["trackID"]
-    trackData = lyricsCache.get(trackID)
-
-    return trackData
-
-def SaveLyricsToCache(spotifyState, rawSyncedLyrics):
-    global lyricsCache
-
-    scrubbedLyricsData = ScrubSyncedLyrics(rawSyncedLyrics)
-
-    lyricsCache[spotifyState["trackID"]] = {
-        "trackName": spotifyState["trackName"],
-        "artistName": spotifyState["artistName"],
-        "albumName": spotifyState["albumName"],
-        "lrclibAlbumName": spotifyState["albumName"],
-        "durationMS": spotifyState["durationMS"],
-        "cachedAt": time.time(),
-
-        **scrubbedLyricsData
-    }
-
-    SaveCache(lyricsCache)
-
-    return lyricsCache[spotifyState["trackID"]]
-
-def EnsureTrackDataIsScrubbed(trackData):
-    if trackData is None:
-        return None
-
-    if (
-        trackData.get("scrubVersion") == 1
-        and "displaySyncedLyrics" in trackData
+def get_estimated_lyric_index(current_index, timestamps, current_time):
+    while (
+        current_index + 1 < len(timestamps)
+        and current_time >= timestamps[current_index + 1]
     ):
-        return trackData
+        current_index += 1
 
-    rawSyncedLyrics = trackData.get("rawSyncedLyrics")
+    return current_index
 
-    if rawSyncedLyrics is None:
-        rawSyncedLyrics = trackData.get("syncedLyrics")
 
-    scrubbedData = ScrubSyncedLyrics(rawSyncedLyrics)
+def should_be_idle(spotify_state, lyrics_state):
+    if spotify_state["isValidTrack"] == False:
+        return True
 
-    updatedTrackData = dict(trackData)
-    updatedTrackData.pop("syncedLyrics", None)
-    updatedTrackData.update(scrubbedData)
+    if spotify_state["isPlaying"] == False:
+        return True
 
-    return updatedTrackData
-        
-def LoadLyricsForSpotifyState(spotifyState):
-    global lyricsCache
-
-    trackData = GetLyricsFromCache(spotifyState)
-
-    # Cached, check if scrubbed.
-    if trackData is not None:
-        scrubbedTrackData = EnsureTrackDataIsScrubbed(trackData)
-
-        if scrubbedTrackData != trackData:
-            lyricsCache[spotifyState["trackID"]] = scrubbedTrackData
-            SaveCache(lyricsCache)
-
-        trackData = scrubbedTrackData
-
-    # The song is not cached, so fetch and scrub it.
-    if trackData is None:
-        rawSyncedLyrics = GetLCRLIBLyrics(
-            spotifyState["lrclibParams"]
-        )
-
-        if rawSyncedLyrics is None:
-            return [0], [""], 0, False
-
-        trackData = SaveLyricsToCache(
-            spotifyState,
-            rawSyncedLyrics
-        )
-
-    displayStatus = trackData.get("displayStatus", "valid")
-
-    if displayStatus == "unsupported_language":
-        return [0], ["I can't understand that yet!"], 0, True
-
-    displaySyncedLyrics = trackData.get("displaySyncedLyrics")
-
-    if displaySyncedLyrics is None:
-        return [0], [""], 0, False
-
-    timestampList, lyricsList = CreateLyricsAndTimestampLists(
-        displaySyncedLyrics
-    )
-
-    currentLyricIndex = GetCurrentLyricIndex(
-        timestampList,
-        GetSongTime(spotifyState)
-    )
-
-    return (
-        timestampList,
-        lyricsList,
-        currentLyricIndex,
-        True
-    )
-
-def midpoint(a, b):
-    return a + (b - a) // 2
-
-def GetCurrentLyricIndex(list, target):
-    left = 0
-    right = 0
-    middle = 0
-    bestIndex = 0
-
-    right = len(list) - 1
-    middle = midpoint(left, right)
-
-    while left <= right:
-        middle = midpoint(left, right)
-        current = list[middle]
-
-        if current <= target:
-            bestIndex = middle
-            left = middle + 1
-
-        else:
-            right = middle - 1
-
-    return bestIndex
-
-def GetEstimatedLyricIndex(currentIndex, timestamps, currentTime):
-    while currentIndex + 1 < len(timestamps) and currentTime >= timestamps[currentIndex + 1]:
-        currentIndex += 1
-    return currentIndex
-
-def GetSongTime(spotifyState):
-    if spotifyState["isPlaying"] == False:
-        return spotifyState["progressMS"]
-
-    elapsedMS = (time.perf_counter() - spotifyState["requestTime"]) * 1000
-    songTimeMS = spotifyState["progressMS"] + elapsedMS
-    return songTimeMS
-
-def GetIdleCandidateReason(spotifyState, hasLyrics, lyricsFailedPermanently):
-    if spotifyState["stateType"] in ["NO_ACTIVE_SESSION", "NO_ITEM", "NOT_TRACK", "SPOTIFY_ERROR"]:
-        return spotifyState["stateType"]
-
-    if spotifyState["isValidTrack"] and hasLyrics == False and lyricsFailedPermanently:
-        return "NO_SYNCED_LYRICS"
-
-    if spotifyState["isValidTrack"] and spotifyState["isPlaying"] == False:
-        return "PAUSED"
-
-    return None
+    if lyrics_state["lyrics_failed_permanently"]:
+        return True
 
     return False
 
-def GetRandomIdleMessage():
-    global lastIdleMessage
+
+def get_random_idle_message():
+    global last_idle_message
 
     if len(IDLE_MESSAGES) == 1:
-        chosenMessage = IDLE_MESSAGES[0]
+        chosen_message = IDLE_MESSAGES[0]
     else:
-        possibleMessages = []
+        possible_messages = []
 
         for message in IDLE_MESSAGES:
-            if message != lastIdleMessage:
-                possibleMessages.append(message)
+            if message != last_idle_message:
+                possible_messages.append(message)
 
-        chosenMessage = random.choice(possibleMessages)
+        chosen_message = random.choice(possible_messages)
 
-    lastIdleMessage = chosenMessage
-    return chosenMessage
+    last_idle_message = chosen_message
+    return chosen_message
 
-def UpdateIdleMessages(now, spotifyState, hasLyrics, lyricsFailedPermanently):
-    global idleCandidateStartTime
-    global idleModeActive
-    global lastIdleMessageTime
 
-    idleCandidateReason = GetIdleCandidateReason(
-        spotifyState,
-        hasLyrics,
-        lyricsFailedPermanently
-    )
+def update_idle_mode(now, spotify_state, lyrics_state):
+    global current_mode
+    global idle_start_time
+    global last_idle_message_time
 
-    # Not idle-ish at all, so fully reset the idle countdown
-    if idleCandidateReason is None:
-        idleCandidateStartTime = None
-        idleModeActive = False
-        lastIdleMessageTime = 0
+    if should_be_idle(spotify_state, lyrics_state) == False:
+        current_mode = "RUNNING"
+        idle_start_time = None
         return
 
-    # First moment we entered any idle-ish state
-    if idleCandidateStartTime is None:
-        idleCandidateStartTime = now
-        idleModeActive = False
-        lastIdleMessageTime = 0
+    if current_mode == "RUNNING":
+        if idle_start_time is None:
+            idle_start_time = now
+
+        if now - idle_start_time >= IDLE_START_DELAY:
+            current_mode = "IDLE"
+            last_idle_message_time = now
+            display_lyrics(get_random_idle_message())
+
         return
 
-    # We are idle-ish, but not for long enough yet
-    if now - idleCandidateStartTime < IDLE_START_DELAY:
-        idleModeActive = False
-        lastIdleMessageTime = 0
-        return
+    if now - last_idle_message_time >= IDLE_MESSAGE_INTERVAL:
+        last_idle_message_time = now
+        display_lyrics(get_random_idle_message())
 
-    # We have now been idle-ish for long enough
-    if idleModeActive == False:
-        idleModeActive = True
-        lastIdleMessageTime = now
-        print(GetRandomIdleMessage())
-        return
 
-    if now - lastIdleMessageTime >= IDLE_MESSAGE_INTERVAL:
-        lastIdleMessageTime = now
-        print(GetRandomIdleMessage())
-
-def displayLyrics(lyric):
-    lines = []
-
-    lyric = lyric[:80] # Trim to 80 chars
-    lyricLength = len(lyric)
-
-    lineCount = (lyricLength + 19) // 20 # Zero-indexed line count. 4 lines would give lineCount of 3
-
-    for lineNumber in range(lineCount): # Split up the lyric into lines of 20 chars
-            start = 20 * lineNumber
-            end = min(20 * (lineNumber + 1), lyricLength)
-            
-            lines.append(lyric[start:end].lstrip())
-
-    # Display Lines
+def print_lines(lines):
     print("")
     for line in lines:
         print(line)
 
+
+def display_lyrics(lyric):
+
+    lines = format_text_to_bounds(lyric)
+
+    # Display Lines
+    print_lines(lines)
+    write_lines_LCD(lines)
+
+def create_empty_lyrics_state():
+    return {
+        "timestamp_list": [0],
+        "lyrics_list": [""],
+        "current_lyric_index": 0,
+        "has_lyrics": False,
+        "lyric_load_attempts": 0,
+        "next_lyric_retry_time": 0,
+        "lyrics_failed_permanently": False
+    }
+
+def try_load_lyrics(spotify_state, lyrics_state):
+    lyrics_state["lyric_load_attempts"] += 1
+
+    (
+        lyrics_state["timestamp_list"],
+        lyrics_state["lyrics_list"],
+        lyrics_state["current_lyric_index"],
+        lyrics_state["has_lyrics"]
+    ) = load_lyrics_for_spotify_state(spotify_state)
+
+    if lyrics_state["has_lyrics"]:
+        display_lyrics(
+            lyrics_state["lyrics_list"][
+                lyrics_state["current_lyric_index"]
+            ]
+        )
+
+    return lyrics_state["has_lyrics"]
+
+
 # =============== MAIN ===============
+def main():
+    spotify_state = get_spotify_state()
+    # Key = trackID, data is another dict containing lyrics only for now,
+    # but can contain other stuff
+    load_cache()
 
-spotifyState = GetSpotifyState()
-lyricsCache = LoadCache() #Key = trackID, data is another dict containing lyrics only for now, but can contian other stuff
+    lyrics_state = create_empty_lyrics_state()
 
-timestampList = [0]
-lyricsList = [""]
-currentLyricIndex = 0
-hasLyrics = False
+    # If there is a session, say that lyrics are being loaded
+    if spotify_state["isValidTrack"]:
+        print_status_once("LOADING_LYRICS")
 
-lyricLoadAttempts = 0
-nextLyricRetryTime = 0
-lyricsFailedPermanently = False
+        # Try to get packaged lyrics from LRCLIB
+        if try_load_lyrics(spotify_state, lyrics_state):
+            pass
+        else:  # If no lyrics, print that you're retrying, then retry later.
+            print_status_once("LYRICS_NOT_LOADED_RETRYING")
+            lyrics_state["next_lyric_retry_time"] = (
+                time.perf_counter() + LYRIC_RETRY_INTERVAL
+            )
+    # Otherwise print what's happening.
+    else:
+        print_status_once(spotify_state["stateType"])
 
-# If there is a session, say that lyrics are being loaded
-if spotifyState["isValidTrack"]:
-    PrintStatusOnce("LOADING_LYRICS")
+    last_lyric_update = time.perf_counter()
+    last_spotify_check = time.perf_counter()
 
-    # Try to get packaged lyrics from LCRLIB
-    lyricLoadAttempts += 1
-    timestampList, lyricsList, currentLyricIndex, hasLyrics = LoadLyricsForSpotifyState(spotifyState)
+    while True:
+        now = time.perf_counter()
+        
+        update_idle_mode(
+            now,
+            spotify_state,
+            lyrics_state
+        )
 
-    if hasLyrics:
-        displayLyrics(lyricsList[currentLyricIndex])
-    else: # If no lyrics, print that you're retrying, wait a little then try again.
-        PrintStatusOnce("LYRICS_NOT_LOADED_RETRYING")
-        nextLyricRetryTime = time.perf_counter() + LYRIC_RETRY_INTERVAL
-# Otherwise print whats happening.
-else:
-    PrintStatusOnce(spotifyState["stateType"])
+        if spotify_state["isValidTrack"] and lyrics_state["has_lyrics"]:
+            estimated_song_time_ms = get_song_time(spotify_state)
 
-last_lyric_update = time.perf_counter()
-last_spotify_check = time.perf_counter()
+            if now - last_lyric_update >= LYRIC_INTERVAL:
+                original_lyric_index = lyrics_state["current_lyric_index"]
+                lyrics_state["current_lyric_index"] = get_estimated_lyric_index(
+                    lyrics_state["current_lyric_index"],
+                    lyrics_state["timestamp_list"],
+                    estimated_song_time_ms
+                )
 
-while True:
-    now = time.perf_counter()
-    UpdateIdleMessages(now, spotifyState, hasLyrics, lyricsFailedPermanently)
+                if original_lyric_index != lyrics_state["current_lyric_index"]:
+                    display_lyrics(lyrics_state["lyrics_list"][lyrics_state["current_lyric_index"]])
 
-    if spotifyState["isValidTrack"] and hasLyrics:
-        estimatedSongTimeMS = GetSongTime(spotifyState)
+                last_lyric_update = now
 
-        if now - last_lyric_update >= LYRIC_INTERVAL:
-            originalLyricIndex = currentLyricIndex
-            currentLyricIndex = GetEstimatedLyricIndex(currentLyricIndex, timestampList, estimatedSongTimeMS)
+        if now - last_spotify_check >= SPOTIFY_INTERVAL:
+            old_spotify_state = spotify_state
+            new_spotify_state = get_spotify_state()
 
-            if originalLyricIndex != currentLyricIndex:
-                displayLyrics(lyricsList[currentLyricIndex])
+            if new_spotify_state["isValidTrack"] == False:
+                spotify_state = new_spotify_state
+                lyrics_state = create_empty_lyrics_state()
 
-            last_lyric_update = now
+                print_status_once(spotify_state["stateType"])
 
-    if now - last_spotify_check >= SPOTIFY_INTERVAL:
-        oldSpotifyState = spotifyState
-        newSpotifyState = GetSpotifyState()
+            elif (
+                old_spotify_state["isValidTrack"] == False
+                or new_spotify_state["trackID"] != old_spotify_state["trackID"]
+            ):
+                spotify_state = new_spotify_state
 
-        if newSpotifyState["isValidTrack"] == False:
-            spotifyState = newSpotifyState
-            timestampList = [0]
-            lyricsList = [""]
-            currentLyricIndex = 0
-            hasLyrics = False
+                lyrics_state = create_empty_lyrics_state()
 
-            lyricLoadAttempts = 0
-            nextLyricRetryTime = 0
-            lyricsFailedPermanently = False
+                print_status_once("LOADING_LYRICS")
 
-            PrintStatusOnce(spotifyState["stateType"])
+                if try_load_lyrics(spotify_state, lyrics_state):
+                    pass
+                else:
+                    print_status_once("LYRICS_NOT_LOADED_RETRYING")
+                    lyrics_state["next_lyric_retry_time"] = (
+                        time.perf_counter() + LYRIC_RETRY_INTERVAL
+                    )
 
-        elif oldSpotifyState["isValidTrack"] == False or newSpotifyState["trackID"] != oldSpotifyState["trackID"]:
-            spotifyState = newSpotifyState
-
-            timestampList = [0]
-            lyricsList = [""]
-            currentLyricIndex = 0
-            hasLyrics = False
-
-            lyricLoadAttempts = 0
-            nextLyricRetryTime = 0
-            lyricsFailedPermanently = False
-
-            PrintStatusOnce("LOADING_LYRICS")
-
-            lyricLoadAttempts += 1
-            timestampList, lyricsList, currentLyricIndex, hasLyrics = LoadLyricsForSpotifyState(spotifyState)
-
-            if hasLyrics:
-                displayLyrics(lyricsList[currentLyricIndex])
             else:
-                PrintStatusOnce("LYRICS_NOT_LOADED_RETRYING")
-                nextLyricRetryTime = time.perf_counter() + LYRIC_RETRY_INTERVAL
+                if lyrics_state["has_lyrics"] == False and lyrics_state["lyrics_failed_permanently"] == False:
+                    if now >= lyrics_state["next_lyric_retry_time"]:
+                        print_status_once("RETRYING_LYRICS")
 
-        else:
-            if hasLyrics == False and lyricsFailedPermanently == False:
-                if now >= nextLyricRetryTime:
-                    PrintStatusOnce("RETRYING_LYRICS")
+                        if try_load_lyrics(new_spotify_state, lyrics_state):
+                            pass
 
-                    lyricLoadAttempts += 1
-                    timestampList, lyricsList, currentLyricIndex, hasLyrics = LoadLyricsForSpotifyState(newSpotifyState)
+                        elif lyrics_state["lyric_load_attempts"] >= MAX_LYRIC_LOAD_ATTEMPTS:
+                            lyrics_state["lyrics_failed_permanently"] = True
+                            print_status_once("NO_SYNCED_LYRICS")
 
-                    if hasLyrics:
-                        displayLyrics(lyricsList[currentLyricIndex])
+                        else:
+                            print_status_once("LYRICS_NOT_LOADED_RETRYING")
+                            lyrics_state["next_lyric_retry_time"] = (
+                                now + LYRIC_RETRY_INTERVAL
+                            )
 
-                    elif lyricLoadAttempts >= MAX_LYRIC_LOAD_ATTEMPTS:
-                        lyricsFailedPermanently = True
-                        PrintStatusOnce("NO_SYNCED_LYRICS")
+                estimated_song_time_ms = get_song_time(spotify_state)
+                actual_spotify_time_ms = get_song_time(new_spotify_state)
+                time_difference_ms = (
+                    actual_spotify_time_ms - estimated_song_time_ms
+                )
 
-                    else:
-                        PrintStatusOnce("LYRICS_NOT_LOADED_RETRYING")
-                        nextLyricRetryTime = now + LYRIC_RETRY_INTERVAL
+                if (
+                    lyrics_state["has_lyrics"]
+                    and abs(time_difference_ms) > TIME_RESYNC_THRESHOLD_MS
+                ):
+                    print("Time jump detected:", time_difference_ms, "ms")
 
-            estimatedSongTimeMS = GetSongTime(spotifyState)
-            actualSpotifyTimeMS = GetSongTime(newSpotifyState)
-            timeDifferenceMS = actualSpotifyTimeMS - estimatedSongTimeMS
+                    lyrics_state["current_lyric_index"] = get_current_lyric_index(
+                        lyrics_state["timestamp_list"],
+                        actual_spotify_time_ms
+                    )
+                    display_lyrics(lyrics_state["lyrics_list"][lyrics_state["current_lyric_index"]])
 
-            if hasLyrics and abs(timeDifferenceMS) > TIME_RESYNC_THRESHOLD_MS:
-                print("Time jump detected:", timeDifferenceMS, "ms")
+                spotify_state = new_spotify_state
 
-                currentLyricIndex = GetCurrentLyricIndex(timestampList, actualSpotifyTimeMS)
-                displayLyrics(lyricsList[currentLyricIndex])
+            last_spotify_check = now
 
-            spotifyState = newSpotifyState
+        time.sleep(0.01)
 
-        last_spotify_check = now
 
-    time.sleep(0.01)
+if __name__ == "__main__":
+    main()
