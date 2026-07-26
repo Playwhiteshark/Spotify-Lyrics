@@ -12,6 +12,11 @@ from lyrics_handler import (
 from formatter import format_text_to_bounds
 from display.lcd import write_lines_LCD
 
+from power_control import shut_down_pi
+
+write_lines_LCD(["Starting up..."])
+
+
 # ============ CONSTANTS ============
 
 LYRIC_INTERVAL = 0.1      # 100 ms
@@ -19,6 +24,7 @@ SPOTIFY_INTERVAL = 2.0    # 2 seconds
 TIME_RESYNC_THRESHOLD_MS = 500
 LYRIC_RETRY_INTERVAL = 5.0
 MAX_LYRIC_LOAD_ATTEMPTS = 6
+AUTO_SHUTDOWN_DELAY = 300
 IDLE_MESSAGE_INTERVAL = 15.0
 IDLE_START_DELAY = 30.0
 IDLE_MESSAGES = [
@@ -75,9 +81,6 @@ def should_be_idle(spotify_state, lyrics_state):
     if spotify_state["isPlaying"] == False:
         return True
 
-    if lyrics_state["lyrics_failed_permanently"]:
-        return True
-
     return False
 
 
@@ -109,10 +112,15 @@ def update_idle_mode(now, spotify_state, lyrics_state):
         idle_start_time = None
         return
 
-    if current_mode == "RUNNING":
-        if idle_start_time is None:
-            idle_start_time = now
+    if idle_start_time is None:
+        idle_start_time = now
 
+    if now - idle_start_time >= AUTO_SHUTDOWN_DELAY:
+        display_text("Shutting down... Safe to unplug.")
+        shut_down_pi()
+        return
+
+    if current_mode == "RUNNING":
         if now - idle_start_time >= IDLE_START_DELAY:
             current_mode = "IDLE"
             last_idle_message_time = now
@@ -172,7 +180,6 @@ def try_load_lyrics(spotify_state, lyrics_state):
 
 # =============== MAIN ===============
 def main():
-    display_text("Starting up...")
 
     spotify_state = get_spotify_state()
     # Key = trackID, data is another dict containing lyrics only for now,
