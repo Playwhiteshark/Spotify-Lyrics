@@ -116,13 +116,13 @@ def update_idle_mode(now, spotify_state, lyrics_state):
         if now - idle_start_time >= IDLE_START_DELAY:
             current_mode = "IDLE"
             last_idle_message_time = now
-            display_lyrics(get_random_idle_message())
+            display_text(get_random_idle_message())
 
         return
 
     if now - last_idle_message_time >= IDLE_MESSAGE_INTERVAL:
         last_idle_message_time = now
-        display_lyrics(get_random_idle_message())
+        display_text(get_random_idle_message())
 
 
 def print_lines(lines):
@@ -131,7 +131,7 @@ def print_lines(lines):
         print(line)
 
 
-def display_lyrics(lyric):
+def display_text(lyric):
 
     lines = format_text_to_bounds(lyric)
 
@@ -161,7 +161,7 @@ def try_load_lyrics(spotify_state, lyrics_state):
     ) = load_lyrics_for_spotify_state(spotify_state)
 
     if lyrics_state["has_lyrics"]:
-        display_lyrics(
+        display_text(
             lyrics_state["lyrics_list"][
                 lyrics_state["current_lyric_index"]
             ]
@@ -172,6 +172,8 @@ def try_load_lyrics(spotify_state, lyrics_state):
 
 # =============== MAIN ===============
 def main():
+    display_text("Starting up...")
+
     spotify_state = get_spotify_state()
     # Key = trackID, data is another dict containing lyrics only for now,
     # but can contain other stuff
@@ -219,7 +221,7 @@ def main():
                 )
 
                 if original_lyric_index != lyrics_state["current_lyric_index"]:
-                    display_lyrics(lyrics_state["lyrics_list"][lyrics_state["current_lyric_index"]])
+                    display_text(lyrics_state["lyrics_list"][lyrics_state["current_lyric_index"]])
 
                 last_lyric_update = now
 
@@ -285,7 +287,7 @@ def main():
                         lyrics_state["timestamp_list"],
                         actual_spotify_time_ms
                     )
-                    display_lyrics(lyrics_state["lyrics_list"][lyrics_state["current_lyric_index"]])
+                    display_text(lyrics_state["lyrics_list"][lyrics_state["current_lyric_index"]])
 
                 spotify_state = new_spotify_state
 

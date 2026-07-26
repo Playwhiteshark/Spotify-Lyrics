@@ -1,9 +1,14 @@
 spotify_secrets.py
 .cache*
-remake playlist.py
-lyrics_analyser.py
+cache/
+.venv/
 __pycache__/
 *.pyc
-.venv/
+
 tools/
-cache/
+remake playlist.py
+lyrics_analyser.py
+
+.vscode/
+.DS_Store
+Thumbs.db
