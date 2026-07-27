@@ -209,12 +209,6 @@ def main():
 
     while True:
         now = time.perf_counter()
-        
-        update_idle_mode(
-            now,
-            spotify_state,
-            lyrics_state
-        )
 
         if spotify_state["isValidTrack"] and lyrics_state["has_lyrics"]:
             estimated_song_time_ms = get_song_time(spotify_state)
@@ -299,6 +293,12 @@ def main():
                 spotify_state = new_spotify_state
 
             last_spotify_check = now
+
+        update_idle_mode(
+            now,
+            spotify_state,
+            lyrics_state
+        )
 
         time.sleep(0.01)
 
