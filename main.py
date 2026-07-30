@@ -21,10 +21,10 @@ write_lines_LCD(["Starting up..."])
 
 LYRIC_INTERVAL = 0.1      # 100 ms
 SPOTIFY_INTERVAL = 2.0    # 2 seconds
-TIME_RESYNC_THRESHOLD_MS = 60 * 60
+TIME_RESYNC_THRESHOLD_MS = 250
 LYRIC_RETRY_INTERVAL = 5.0
 MAX_LYRIC_LOAD_ATTEMPTS = 6
-AUTO_SHUTDOWN_DELAY = 300
+AUTO_SHUTDOWN_DELAY = 60 * 60
 IDLE_MESSAGE_INTERVAL = 15.0
 IDLE_START_DELAY = 30.0
 IDLE_MESSAGES = [
@@ -43,7 +43,10 @@ IDLE_MESSAGES = [
     "No bangers detected.",
     "It's like a fleck!",
     "I just an Eva...",
-    "Watch Dexter!"
+    "Watch Dexter!",
+    "It's never Lupus.",
+    "That's way too far...",
+    "Are you five years old?"
 ]
 
 # ============ VARIABLES ============
@@ -179,6 +182,8 @@ def try_load_lyrics(spotify_state, lyrics_state):
 
 
 # =============== MAIN ===============
+
+
 def main():
 
     spotify_state = get_spotify_state()
