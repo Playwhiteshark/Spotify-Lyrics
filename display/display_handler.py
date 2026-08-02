@@ -58,6 +58,10 @@ def display_now_playing(spotify_state):
     )
 
 
+def display_lyrics_unavailable(spotify_state):
+    display_now_playing(spotify_state)
+
+
 def get_random_idle_message():
     global last_idle_message
 
@@ -123,5 +127,13 @@ def update_display(
             display_text(current_lyric)
             return
 
-        display_now_playing(spotify_state)
-        return
+        elif (
+            lyrics_state["unavailable_reason"] is not None
+            or lyrics_state["lyrics_retry_exhausted"]
+        ):
+            display_lyrics_unavailable(spotify_state)
+            return
+
+        else:
+            display_now_playing(spotify_state)
+            return
