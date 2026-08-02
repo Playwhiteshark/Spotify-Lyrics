@@ -267,13 +267,8 @@ def update_spotify_state(
             idle_state
         )
 
-        # Show Now Playing immediately, before lyric loading can block
-        update_display(
-            now,
-            spotify_state,
-            lyrics_state,
-            idle_state
-        )
+        # Clear the previous song while lyric loading happens.
+        display_text("")
 
         print_status_once("LOADING_LYRICS")
 
@@ -462,13 +457,6 @@ def main():
     # If there is a session, say that lyrics are being loaded
     if spotify_state["isValidTrack"]:
         print_status_once("LOADING_LYRICS")
-
-        update_display(
-            time.perf_counter(),
-            spotify_state,
-            lyrics_state,
-            idle_state
-        )
 
         # Try to get packaged lyrics from LRCLIB
         if try_load_lyrics(spotify_state, lyrics_state):
