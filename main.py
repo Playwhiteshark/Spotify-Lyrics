@@ -10,7 +10,6 @@ from lyrics_handler import (
 
 from display.display_handler import (
     display_text,
-    display_now_playing,
     update_display
 )
 
@@ -143,13 +142,6 @@ def try_load_lyrics(spotify_state, lyrics_state):
         lyrics_state["has_lyrics"]
     ) = load_lyrics_for_spotify_state(spotify_state)
 
-    if lyrics_state["has_lyrics"]:
-        display_text(
-            lyrics_state["lyrics_list"][
-                lyrics_state["current_lyric_index"]
-            ]
-        )
-
     return lyrics_state["has_lyrics"]
 
 
@@ -169,7 +161,13 @@ def main():
     # If there is a session, say that lyrics are being loaded
     if spotify_state["isValidTrack"]:
         print_status_once("LOADING_LYRICS")
-        display_now_playing(spotify_state)
+
+        update_display(
+            time.perf_counter(),
+            spotify_state,
+            lyrics_state,
+            idle_state
+        )
 
         # Try to get packaged lyrics from LRCLIB
         if try_load_lyrics(spotify_state, lyrics_state):
@@ -193,15 +191,11 @@ def main():
             estimated_song_time_ms = get_song_time(spotify_state)
 
             if now - last_lyric_update >= LYRIC_INTERVAL:
-                original_lyric_index = lyrics_state["current_lyric_index"]
                 lyrics_state["current_lyric_index"] = get_estimated_lyric_index(
                     lyrics_state["current_lyric_index"],
                     lyrics_state["timestamp_list"],
                     estimated_song_time_ms
                 )
-
-                if original_lyric_index != lyrics_state["current_lyric_index"]:
-                    display_text(lyrics_state["lyrics_list"][lyrics_state["current_lyric_index"]])
 
                 last_lyric_update = now
 
@@ -223,7 +217,18 @@ def main():
 
                 lyrics_state = create_empty_lyrics_state()
 
-                display_now_playing(spotify_state)
+                update_idle_state(
+                    now,
+                    spotify_state,
+                    idle_state
+                )
+
+                update_display(
+                    now,
+                    spotify_state,
+                    lyrics_state,
+                    idle_state
+                )
 
                 print_status_once("LOADING_LYRICS")
 
@@ -269,7 +274,6 @@ def main():
                         lyrics_state["timestamp_list"],
                         actual_spotify_time_ms
                     )
-                    display_text(lyrics_state["lyrics_list"][lyrics_state["current_lyric_index"]])
 
                 spotify_state = new_spotify_state
 
@@ -292,7 +296,7 @@ def main():
             lyrics_state,
             idle_state
         )
-        
+
         time.sleep(0.01)
 
 
