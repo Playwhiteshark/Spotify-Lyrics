@@ -144,6 +144,31 @@ def try_load_lyrics(spotify_state, lyrics_state):
 
     return lyrics_state["has_lyrics"]
 
+def update_lyric_progress(
+    now,
+    last_lyric_update,
+    spotify_state,
+    lyrics_state
+):
+    if (
+        spotify_state["isValidTrack"] == False
+        or lyrics_state["has_lyrics"] == False
+    ):
+        return last_lyric_update
+
+    if now - last_lyric_update < LYRIC_INTERVAL:
+        return last_lyric_update
+
+    estimated_song_time_ms = get_song_time(spotify_state)
+
+    lyrics_state["current_lyric_index"] = get_estimated_lyric_index(
+        lyrics_state["current_lyric_index"],
+        lyrics_state["timestamp_list"],
+        estimated_song_time_ms
+    )
+
+    return now
+
 
 # =============== MAIN ===============
 
@@ -192,17 +217,12 @@ def main():
     while True:
         now = time.perf_counter()
 
-        if spotify_state["isValidTrack"] and lyrics_state["has_lyrics"]:
-            estimated_song_time_ms = get_song_time(spotify_state)
-
-            if now - last_lyric_update >= LYRIC_INTERVAL:
-                lyrics_state["current_lyric_index"] = get_estimated_lyric_index(
-                    lyrics_state["current_lyric_index"],
-                    lyrics_state["timestamp_list"],
-                    estimated_song_time_ms
-                )
-
-                last_lyric_update = now
+        last_lyric_update = update_lyric_progress(
+            now,
+            last_lyric_update,
+            spotify_state,
+            lyrics_state
+        )
 
         if now - last_spotify_check >= SPOTIFY_INTERVAL:
             old_spotify_state = spotify_state
