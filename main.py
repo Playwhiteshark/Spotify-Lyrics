@@ -26,7 +26,8 @@ SPOTIFY_INTERVAL = 2.0    # 2 seconds
 TIME_RESYNC_THRESHOLD_MS = 250
 LYRIC_RETRY_INTERVAL = 5.0
 MAX_LYRIC_LOAD_ATTEMPTS = 6
-AUTO_SHUTDOWN_DELAY = 60 * 60
+NO_PLAYBACK_SHUTDOWN_DELAY = 60 * 60
+SPOTIFY_UNREACHABLE_SHUTDOWN_DELAY = 5 * 60
 IDLE_START_DELAY = 30.0
 
 # ============ VARIABLES ============
@@ -55,6 +56,7 @@ def get_estimated_lyric_index(current_index, timestamps, current_time):
 
 def create_idle_state():
     return {
+        "reason": None,
         "inactive_since": None,
         "is_idle": False,
         "shutdown_due": False
@@ -62,19 +64,32 @@ def create_idle_state():
 
 
 def reset_idle_state(idle_state):
+    idle_state["reason"] = None
     idle_state["inactive_since"] = None
     idle_state["is_idle"] = False
     idle_state["shutdown_due"] = False
 
+def get_shutdown_delay(inactivity_reason):
+    if inactivity_reason == "SPOTIFY_UNREACHABLE":
+        return SPOTIFY_UNREACHABLE_SHUTDOWN_DELAY
+
+    return NO_PLAYBACK_SHUTDOWN_DELAY
 
 def update_idle_state(now, spotify_state, idle_state):
-    if should_be_idle(spotify_state) == False:
-        if idle_state["inactive_since"] is not None:
+    inactivity_reason = get_inactivity_reason(spotify_state)
+
+    # Playback is active
+    if inactivity_reason is None:
+        if idle_state["reason"] is not None:
             reset_idle_state(idle_state)
         return
 
-    if idle_state["inactive_since"] is None:
+    # We have entered inactivity, or the reason for inactivity changed
+    if inactivity_reason != idle_state["reason"]:
+        idle_state["reason"] = inactivity_reason
         idle_state["inactive_since"] = now
+        idle_state["is_idle"] = False
+        idle_state["shutdown_due"] = False
 
     inactive_time = now - idle_state["inactive_since"]
 
@@ -82,19 +97,26 @@ def update_idle_state(now, spotify_state, idle_state):
         inactive_time >= IDLE_START_DELAY
     )
 
+    shutdown_delay = get_shutdown_delay(
+        idle_state["reason"]
+    )
+
     idle_state["shutdown_due"] = (
-        inactive_time >= AUTO_SHUTDOWN_DELAY
+        inactive_time >= shutdown_delay
     )
 
 
-def should_be_idle(spotify_state):
-    if spotify_state["isValidTrack"] == False:
-        return True
+def get_inactivity_reason(spotify_state):
+    if (
+        spotify_state["isValidTrack"]
+        and spotify_state["isPlaying"]
+    ):
+        return None
 
-    if spotify_state["isPlaying"] == False:
-        return True
+    if spotify_state["stateType"] == "SPOTIFY_ERROR":
+        return "SPOTIFY_UNREACHABLE"
 
-    return False
+    return "NO_PLAYBACK"
 
 
 def create_empty_lyrics_state():
