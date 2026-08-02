@@ -129,7 +129,8 @@ def create_empty_lyrics_state(track_id=None):
         "has_lyrics": False,
         "lyric_load_attempts": 0,
         "next_lyric_retry_time": 0,
-        "lyrics_retry_exhausted": False
+        "lyrics_retry_exhausted": False,
+        "unavailable_reason": None,
     }
 
 def try_load_lyrics(spotify_state, lyrics_state):
@@ -139,7 +140,8 @@ def try_load_lyrics(spotify_state, lyrics_state):
         lyrics_state["timestamp_list"],
         lyrics_state["lyrics_list"],
         lyrics_state["current_lyric_index"],
-        lyrics_state["has_lyrics"]
+        lyrics_state["has_lyrics"],
+        lyrics_state["unavailable_reason"]
     ) = load_lyrics_for_spotify_state(spotify_state)
 
     return lyrics_state["has_lyrics"]
@@ -209,11 +211,17 @@ def update_spotify_state(
 
         print_status_once("LOADING_LYRICS")
 
-        if try_load_lyrics(spotify_state, lyrics_state) == False:
+        if try_load_lyrics(spotify_state, lyrics_state):
+            pass
+
+        elif lyrics_state["unavailable_reason"] is not None:
+            print_status_once(lyrics_state["unavailable_reason"])
+
+        else:
             print_status_once("LYRICS_NOT_LOADED_RETRYING")
 
             lyrics_state["next_lyric_retry_time"] = (
-                time.perf_counter() + LYRIC_RETRY_INTERVAL
+                now + LYRIC_RETRY_INTERVAL
             )
 
         return spotify_state, lyrics_state
@@ -222,12 +230,16 @@ def update_spotify_state(
     if (
         lyrics_state["has_lyrics"] == False
         and lyrics_state["lyrics_retry_exhausted"] == False
+        and lyrics_state["unavailable_reason"] is None
         and now >= lyrics_state["next_lyric_retry_time"]
     ):
         print_status_once("RETRYING_LYRICS")
 
         if try_load_lyrics(new_spotify_state, lyrics_state):
             pass
+
+        elif lyrics_state["unavailable_reason"] is not None:
+            print_status_once(lyrics_state["unavailable_reason"])
 
         elif (
             lyrics_state["lyric_load_attempts"]
@@ -320,8 +332,13 @@ def main():
         # Try to get packaged lyrics from LRCLIB
         if try_load_lyrics(spotify_state, lyrics_state):
             pass
-        else:  # If no lyrics, print that you're retrying, then retry later.
+
+        elif lyrics_state["unavailable_reason"] is not None:
+            print_status_once(lyrics_state["unavailable_reason"])
+
+        else:
             print_status_once("LYRICS_NOT_LOADED_RETRYING")
+
             lyrics_state["next_lyric_retry_time"] = (
                 time.perf_counter() + LYRIC_RETRY_INTERVAL
             )
