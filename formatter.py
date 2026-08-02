@@ -28,7 +28,10 @@ def remove_parentheses(text):
     if parenthesis_depth > 0:
         return text
 
-    no_parentheses_text = " ".join(no_parentheses_text.split())
+    no_parentheses_text = "\n".join(
+        " ".join(line.split())
+        for line in no_parentheses_text.splitlines()
+    )
 
     return no_parentheses_text
 
