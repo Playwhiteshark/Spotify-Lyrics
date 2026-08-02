@@ -9,12 +9,11 @@ from lyrics_handler import (
     get_current_lyric_index
 )
 
-from formatter import format_text_to_bounds
-from display.lcd import write_lines_LCD
+from display.display_handler import display_text
 
 from power_control import shut_down_pi
 
-write_lines_LCD(["Starting up..."])
+display_text("Starting up...")
 
 
 # ============ CONSTANTS ============
@@ -135,20 +134,6 @@ def update_idle_mode(now, spotify_state, lyrics_state):
         last_idle_message_time = now
         display_text(get_random_idle_message())
 
-
-def print_lines(lines):
-    print("")
-    for line in lines:
-        print(line)
-
-
-def display_text(lyric):
-
-    lines = format_text_to_bounds(lyric)
-
-    # Display Lines
-    print_lines(lines)
-    write_lines_LCD(lines)
 
 def create_empty_lyrics_state():
     return {
