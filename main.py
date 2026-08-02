@@ -9,7 +9,10 @@ from lyrics_handler import (
     get_current_lyric_index
 )
 
-from display.display_handler import display_text
+from display.display_handler import (
+    display_text,
+    display_now_playing
+)
 
 from power_control import shut_down_pi
 
@@ -181,6 +184,7 @@ def main():
     # If there is a session, say that lyrics are being loaded
     if spotify_state["isValidTrack"]:
         print_status_once("LOADING_LYRICS")
+        display_now_playing(spotify_state)
 
         # Try to get packaged lyrics from LRCLIB
         if try_load_lyrics(spotify_state, lyrics_state):
@@ -223,6 +227,7 @@ def main():
             if new_spotify_state["isValidTrack"] == False:
                 spotify_state = new_spotify_state
                 lyrics_state = create_empty_lyrics_state()
+                display_now_playing(spotify_state)
 
                 print_status_once(spotify_state["stateType"])
 

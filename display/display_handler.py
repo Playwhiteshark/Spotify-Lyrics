@@ -20,3 +20,10 @@ def display_text(text):
         print(line)
 
     write_lines_LCD(lines)
+
+def display_now_playing(spotify_state):
+    display_text(
+        "NOW PLAYING:\n"
+        f"{spotify_state['trackName']}\n"
+        f"{spotify_state['artistName']}"
+    )
