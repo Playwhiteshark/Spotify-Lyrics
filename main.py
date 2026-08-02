@@ -54,8 +54,6 @@ IDLE_MESSAGES = [
 # ============ VARIABLES ============
 
 last_display_state = ""
-current_mode = "RUNNING"
-idle_start_time = None
 last_idle_message_time = 0
 last_idle_message = ""
 
@@ -79,7 +77,41 @@ def get_estimated_lyric_index(current_index, timestamps, current_time):
     return current_index
 
 
-def should_be_idle(spotify_state, lyrics_state):
+def create_idle_state():
+    return {
+        "inactive_since": None,
+        "is_idle": False,
+        "shutdown_due": False
+    }
+
+
+def reset_idle_state(idle_state):
+    idle_state["inactive_since"] = None
+    idle_state["is_idle"] = False
+    idle_state["shutdown_due"] = False
+
+
+def update_idle_state(now, spotify_state, idle_state):
+    if should_be_idle(spotify_state) == False:
+        if idle_state["inactive_since"] is not None:
+            reset_idle_state(idle_state)
+        return
+
+    if idle_state["inactive_since"] is None:
+        idle_state["inactive_since"] = now
+
+    inactive_time = now - idle_state["inactive_since"]
+
+    idle_state["is_idle"] = (
+        inactive_time >= IDLE_START_DELAY
+    )
+
+    idle_state["shutdown_due"] = (
+        inactive_time >= AUTO_SHUTDOWN_DELAY
+    )
+
+
+def should_be_idle(spotify_state):
     if spotify_state["isValidTrack"] == False:
         return True
 
@@ -107,33 +139,17 @@ def get_random_idle_message():
     return chosen_message
 
 
-def update_idle_mode(now, spotify_state, lyrics_state):
-    global current_mode
-    global idle_start_time
+def update_idle_display(now, idle_state):
     global last_idle_message_time
 
-    if should_be_idle(spotify_state, lyrics_state) == False:
-        current_mode = "RUNNING"
-        idle_start_time = None
+    if idle_state["is_idle"] == False:
+        last_idle_message_time = 0
         return
 
-    if idle_start_time is None:
-        idle_start_time = now
-
-    if now - idle_start_time >= AUTO_SHUTDOWN_DELAY:
-        display_text("Shutting down... Safe to unplug.")
-        shut_down_pi()
-        return
-
-    if current_mode == "RUNNING":
-        if now - idle_start_time >= IDLE_START_DELAY:
-            current_mode = "IDLE"
-            last_idle_message_time = now
-            display_text(get_random_idle_message())
-
-        return
-
-    if now - last_idle_message_time >= IDLE_MESSAGE_INTERVAL:
+    if (
+        last_idle_message_time == 0
+        or now - last_idle_message_time >= IDLE_MESSAGE_INTERVAL
+    ):
         last_idle_message_time = now
         display_text(get_random_idle_message())
 
@@ -148,6 +164,7 @@ def create_empty_lyrics_state():
         "next_lyric_retry_time": 0,
         "lyrics_failed_permanently": False
     }
+
 
 def try_load_lyrics(spotify_state, lyrics_state):
     lyrics_state["lyric_load_attempts"] += 1
@@ -175,11 +192,12 @@ def try_load_lyrics(spotify_state, lyrics_state):
 def main():
 
     spotify_state = get_spotify_state()
-    # Key = trackID, data is another dict containing lyrics only for now,
-    # but can contain other stuff
+
     load_cache()
 
     lyrics_state = create_empty_lyrics_state()
+
+    idle_state = create_idle_state()
 
     # If there is a session, say that lyrics are being loaded
     if spotify_state["isValidTrack"]:
@@ -227,7 +245,6 @@ def main():
             if new_spotify_state["isValidTrack"] == False:
                 spotify_state = new_spotify_state
                 lyrics_state = create_empty_lyrics_state()
-                display_now_playing(spotify_state)
 
                 print_status_once(spotify_state["stateType"])
 
@@ -238,6 +255,8 @@ def main():
                 spotify_state = new_spotify_state
 
                 lyrics_state = create_empty_lyrics_state()
+
+                display_now_playing(spotify_state)
 
                 print_status_once("LOADING_LYRICS")
 
@@ -289,10 +308,20 @@ def main():
 
             last_spotify_check = now
 
-        update_idle_mode(
+        update_idle_state(
             now,
             spotify_state,
-            lyrics_state
+            idle_state
+        )
+
+        if idle_state["shutdown_due"]:
+            display_text("Shutting down... Safe to unplug.")
+            shut_down_pi()
+            break
+
+        update_idle_display(
+            now,
+            idle_state
         )
 
         time.sleep(0.01)
