@@ -28,6 +28,8 @@ MAX_LYRIC_LOAD_ATTEMPTS = 6
 NO_PLAYBACK_SHUTDOWN_DELAY = 60 * 60
 SPOTIFY_UNREACHABLE_SHUTDOWN_DELAY = 5 * 60
 IDLE_START_DELAY = 30.0
+NOW_PLAYING_MIN_GAP_MS = 2000
+SPOTIFY_RECONNECT_NOW_PLAYING_DELAY = 5.0
 
 # ============ VARIABLES ============
 
@@ -131,7 +133,9 @@ def create_empty_lyrics_state(track_id=None):
         "next_lyric_retry_time": 0,
         "lyrics_retry_exhausted": False,
         "unavailable_reason": None,
+        "now_playing_until": None
     }
+
 
 def try_load_lyrics(spotify_state, lyrics_state):
     lyrics_state["lyric_load_attempts"] += 1
@@ -145,6 +149,7 @@ def try_load_lyrics(spotify_state, lyrics_state):
     ) = load_lyrics_for_spotify_state(spotify_state)
 
     return lyrics_state["has_lyrics"]
+
 
 def update_lyric_progress(
     now,
@@ -163,6 +168,14 @@ def update_lyric_progress(
 
     estimated_song_time_ms = get_song_time(spotify_state)
 
+    # The temporary Now Playing period has finished.
+    if (
+        lyrics_state["now_playing_until"] is not None
+        and estimated_song_time_ms
+        >= lyrics_state["now_playing_until"]
+    ):
+        lyrics_state["now_playing_until"] = None
+
     lyrics_state["current_lyric_index"] = get_estimated_lyric_index(
         lyrics_state["current_lyric_index"],
         lyrics_state["timestamp_list"],
@@ -170,6 +183,57 @@ def update_lyric_progress(
     )
 
     return now
+
+
+def get_next_nonblank_lyric_time(lyrics_state):
+    current_index = lyrics_state["current_lyric_index"]
+
+    for index in range(
+        current_index + 1,
+        len(lyrics_state["lyrics_list"])
+    ):
+        if lyrics_state["lyrics_list"][index].strip() != "":
+            return lyrics_state["timestamp_list"][index]
+
+    return None
+
+
+def prepare_now_playing(spotify_state, lyrics_state):
+    lyrics_state["now_playing_until"] = None
+
+    if (
+        spotify_state["isValidTrack"] == False
+        or spotify_state["isPlaying"] == False
+        or lyrics_state["has_lyrics"] == False
+    ):
+        return
+
+    current_lyric = lyrics_state["lyrics_list"][
+        lyrics_state["current_lyric_index"]
+    ]
+
+    # Never cover an actual lyric with Now Playing.
+    if current_lyric.strip() != "":
+        return
+
+    next_lyric_time = get_next_nonblank_lyric_time(
+        lyrics_state
+    )
+
+    if next_lyric_time is None:
+        return
+
+    current_song_time = get_song_time(spotify_state)
+
+    time_until_next_lyric = (
+        next_lyric_time - current_song_time
+    )
+
+    if time_until_next_lyric >= NOW_PLAYING_MIN_GAP_MS:
+        lyrics_state["now_playing_until"] = (
+            next_lyric_time
+        )
+
 
 def update_spotify_state(
     now,
@@ -224,8 +288,47 @@ def update_spotify_state(
                 now + LYRIC_RETRY_INTERVAL
             )
 
+        if lyrics_state["has_lyrics"]:
+            prepare_now_playing(
+                spotify_state,
+                lyrics_state
+            )
+
         return spotify_state, lyrics_state
 
+    # From here onward, Spotify is reporting the same track.
+
+    should_prepare_now_playing = False
+
+    if new_spotify_state["isPlaying"]:
+
+        # Paused track -> playing.
+        if (
+            old_spotify_state["isValidTrack"]
+            and old_spotify_state["isPlaying"] == False
+        ):
+            should_prepare_now_playing = True
+
+        # No playback/session -> same track playing again.
+        elif (
+            old_spotify_state["isValidTrack"] == False
+            and idle_state["reason"] == "NO_PLAYBACK"
+        ):
+            should_prepare_now_playing = True
+
+        # Spotify became reachable again after a meaningful outage.
+        elif (
+            old_spotify_state["isValidTrack"] == False
+            and idle_state["reason"] == "SPOTIFY_UNREACHABLE"
+            and idle_state["inactive_since"] is not None
+            and (
+                now - idle_state["inactive_since"]
+                >= SPOTIFY_RECONNECT_NOW_PLAYING_DELAY
+            )
+        ):
+            should_prepare_now_playing = True
+
+    lyrics_loaded_this_update = False
     # Same track: retry lyrics if they have not loaded yet
     if (
         lyrics_state["has_lyrics"] == False
@@ -236,7 +339,7 @@ def update_spotify_state(
         print_status_once("RETRYING_LYRICS")
 
         if try_load_lyrics(new_spotify_state, lyrics_state):
-            pass
+            lyrics_loaded_this_update = True
 
         elif lyrics_state["unavailable_reason"] is not None:
             print_status_once(lyrics_state["unavailable_reason"])
@@ -256,37 +359,52 @@ def update_spotify_state(
             )
 
     # Same track with lyrics: synchronize lyric position
+    
     if lyrics_state["has_lyrics"]:
         actual_spotify_time_ms = get_song_time(
             new_spotify_state
         )
 
         if old_spotify_state["isValidTrack"]:
-            estimated_song_time_ms = get_song_time(
-                old_spotify_state
-            )
 
-            time_difference_ms = (
-                actual_spotify_time_ms
-                - estimated_song_time_ms
-            )
-
-            if (
-                abs(time_difference_ms)
-                > TIME_RESYNC_THRESHOLD_MS
-            ):
-                print(
-                    "Time jump detected:",
-                    time_difference_ms,
-                    "ms"
-                )
-
+            # On resume, always use Spotify's actual position first.
+            if should_prepare_now_playing:
                 lyrics_state["current_lyric_index"] = (
                     get_current_lyric_index(
                         lyrics_state["timestamp_list"],
                         actual_spotify_time_ms
                     )
                 )
+
+            else:
+                estimated_song_time_ms = get_song_time(
+                    old_spotify_state
+                )
+
+                time_difference_ms = (
+                    actual_spotify_time_ms
+                    - estimated_song_time_ms
+                )
+
+                if (
+                    abs(time_difference_ms)
+                    > TIME_RESYNC_THRESHOLD_MS
+                ):
+                    print(
+                        "Time jump detected:",
+                        time_difference_ms,
+                        "ms"
+                    )
+
+                    # A seek makes an old Now Playing period meaningless.
+                    lyrics_state["now_playing_until"] = None
+
+                    lyrics_state["current_lyric_index"] = (
+                        get_current_lyric_index(
+                            lyrics_state["timestamp_list"],
+                            actual_spotify_time_ms
+                        )
+                    )
 
         else:
             # Same song returning after no valid Spotify state.
@@ -296,6 +414,27 @@ def update_spotify_state(
                     actual_spotify_time_ms
                 )
             )
+
+        # Don't let an expired Now Playing override survive.
+        if (
+            lyrics_state["now_playing_until"] is not None
+            and actual_spotify_time_ms
+            >= lyrics_state["now_playing_until"]
+        ):
+            lyrics_state["now_playing_until"] = None
+
+    # Start/resume/reconnect, or lyrics finally arrived after retries.
+    if (
+        lyrics_state["has_lyrics"]
+        and (
+            should_prepare_now_playing
+            or lyrics_loaded_this_update
+        )
+    ):
+        prepare_now_playing(
+            new_spotify_state,
+            lyrics_state
+        )
 
     return new_spotify_state, lyrics_state
 
@@ -331,7 +470,10 @@ def main():
 
         # Try to get packaged lyrics from LRCLIB
         if try_load_lyrics(spotify_state, lyrics_state):
-            pass
+            prepare_now_playing(
+                spotify_state,
+                lyrics_state
+            )
 
         elif lyrics_state["unavailable_reason"] is not None:
             print_status_once(lyrics_state["unavailable_reason"])

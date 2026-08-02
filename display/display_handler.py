@@ -124,6 +124,13 @@ def update_display(
                 lyrics_state["current_lyric_index"]
             ]
 
+            if (
+                current_lyric.strip() == ""
+                and lyrics_state["now_playing_until"] is not None
+            ):
+                display_now_playing(spotify_state)
+                return
+
             display_text(current_lyric)
             return
 
