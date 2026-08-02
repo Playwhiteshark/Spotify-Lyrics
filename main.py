@@ -1,5 +1,4 @@
 import time
-import random
 
 from spotify_handler import get_spotify_state, get_song_time
 
@@ -11,7 +10,8 @@ from lyrics_handler import (
 
 from display.display_handler import (
     display_text,
-    display_now_playing
+    display_now_playing,
+    update_idle_display
 )
 
 from power_control import shut_down_pi
@@ -27,35 +27,11 @@ TIME_RESYNC_THRESHOLD_MS = 250
 LYRIC_RETRY_INTERVAL = 5.0
 MAX_LYRIC_LOAD_ATTEMPTS = 6
 AUTO_SHUTDOWN_DELAY = 60 * 60
-IDLE_MESSAGE_INTERVAL = 15.0
 IDLE_START_DELAY = 30.0
-IDLE_MESSAGES = [
-    "Waiting...",
-    "Nothing to sing yet.",
-    "It says 'gullible' on the ceiling.",
-    "Beware the Aydin curse.",
-    "Play something!",
-    "What if I don't like lyrics in my car?",
-    "The Bertmobile karaoke system is idle.",
-    "Have you heard of The Pigeons?",
-    "Horrible nicknames like Adam Cheese and Uncle Taha...",
-    "Lyrics machine is taking a nap.",
-    "Welcome to the Bertmobile!",
-    "Imagine a cool animation here.",
-    "No bangers detected.",
-    "It's like a fleck!",
-    "I just an Eva...",
-    "Watch Dexter!",
-    "It's never Lupus.",
-    "That's way too far...",
-    "Are you five years old?"
-]
 
 # ============ VARIABLES ============
 
 last_display_state = ""
-last_idle_message_time = 0
-last_idle_message = ""
 
 # =========== FUNCTIONS ===========
 
@@ -119,39 +95,6 @@ def should_be_idle(spotify_state):
         return True
 
     return False
-
-
-def get_random_idle_message():
-    global last_idle_message
-
-    if len(IDLE_MESSAGES) == 1:
-        chosen_message = IDLE_MESSAGES[0]
-    else:
-        possible_messages = []
-
-        for message in IDLE_MESSAGES:
-            if message != last_idle_message:
-                possible_messages.append(message)
-
-        chosen_message = random.choice(possible_messages)
-
-    last_idle_message = chosen_message
-    return chosen_message
-
-
-def update_idle_display(now, idle_state):
-    global last_idle_message_time
-
-    if idle_state["is_idle"] == False:
-        last_idle_message_time = 0
-        return
-
-    if (
-        last_idle_message_time == 0
-        or now - last_idle_message_time >= IDLE_MESSAGE_INTERVAL
-    ):
-        last_idle_message_time = now
-        display_text(get_random_idle_message())
 
 
 def create_empty_lyrics_state():
