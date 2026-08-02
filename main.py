@@ -120,8 +120,9 @@ def get_inactivity_reason(spotify_state):
     return "NO_PLAYBACK"
 
 
-def create_empty_lyrics_state():
+def create_empty_lyrics_state(track_id=None):
     return {
+        "track_id": track_id,
         "timestamp_list": [0],
         "lyrics_list": [""],
         "current_lyric_index": 0,
@@ -130,7 +131,6 @@ def create_empty_lyrics_state():
         "next_lyric_retry_time": 0,
         "lyrics_failed_permanently": False
     }
-
 
 def try_load_lyrics(spotify_state, lyrics_state):
     lyrics_state["lyric_load_attempts"] += 1
@@ -154,7 +154,12 @@ def main():
 
     load_cache()
 
-    lyrics_state = create_empty_lyrics_state()
+    if spotify_state["isValidTrack"]:
+        lyrics_state = create_empty_lyrics_state(
+            spotify_state["trackID"]
+        )
+    else:
+        lyrics_state = create_empty_lyrics_state()
 
     idle_state = create_idle_state()
 
@@ -205,17 +210,15 @@ def main():
 
             if new_spotify_state["isValidTrack"] == False:
                 spotify_state = new_spotify_state
-                lyrics_state = create_empty_lyrics_state()
 
                 print_status_once(spotify_state["stateType"])
 
-            elif (
-                old_spotify_state["isValidTrack"] == False
-                or new_spotify_state["trackID"] != old_spotify_state["trackID"]
-            ):
+            elif new_spotify_state["trackID"] != lyrics_state["track_id"]:
                 spotify_state = new_spotify_state
 
-                lyrics_state = create_empty_lyrics_state()
+                lyrics_state = create_empty_lyrics_state(
+                    new_spotify_state["trackID"]
+                )
 
                 update_idle_state(
                     now,
@@ -258,22 +261,31 @@ def main():
                                 now + LYRIC_RETRY_INTERVAL
                             )
 
-                estimated_song_time_ms = get_song_time(spotify_state)
-                actual_spotify_time_ms = get_song_time(new_spotify_state)
-                time_difference_ms = (
-                    actual_spotify_time_ms - estimated_song_time_ms
-                )
+                if lyrics_state["has_lyrics"]:
+                    actual_spotify_time_ms = get_song_time(new_spotify_state)
 
-                if (
-                    lyrics_state["has_lyrics"]
-                    and abs(time_difference_ms) > TIME_RESYNC_THRESHOLD_MS
-                ):
-                    print("Time jump detected:", time_difference_ms, "ms")
+                    if old_spotify_state["isValidTrack"]:
+                        estimated_song_time_ms = get_song_time(old_spotify_state)
 
-                    lyrics_state["current_lyric_index"] = get_current_lyric_index(
-                        lyrics_state["timestamp_list"],
-                        actual_spotify_time_ms
-                    )
+                        time_difference_ms = (
+                            actual_spotify_time_ms - estimated_song_time_ms
+                        )
+
+                        if abs(time_difference_ms) > TIME_RESYNC_THRESHOLD_MS:
+                            print("Time jump detected:", time_difference_ms, "ms")
+
+                            lyrics_state["current_lyric_index"] = get_current_lyric_index(
+                                lyrics_state["timestamp_list"],
+                                actual_spotify_time_ms
+                            )
+
+                    else:
+                        # Playback has returned after Spotify previously had no valid track.
+                        # We cannot estimate from the old state, so resync directly.
+                        lyrics_state["current_lyric_index"] = get_current_lyric_index(
+                            lyrics_state["timestamp_list"],
+                            actual_spotify_time_ms
+                        )
 
                 spotify_state = new_spotify_state
 
