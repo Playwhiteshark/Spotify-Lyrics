@@ -97,7 +97,15 @@ def update_display(
     lyrics_state,
     idle_state
 ):
-    # Idle presentation
+    # Spotify cannot currently be reached
+    if idle_state["reason"] == "SPOTIFY_UNREACHABLE":
+        display_text(
+            "Can't reach Spotify.\n"
+            "Check connection."
+        )
+        return
+
+    # Normal inactivity
     if idle_state["is_idle"]:
         update_idle_display(now, idle_state)
         return
