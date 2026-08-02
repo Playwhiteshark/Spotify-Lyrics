@@ -29,6 +29,7 @@ NO_PLAYBACK_SHUTDOWN_DELAY = 60 * 60
 SPOTIFY_UNREACHABLE_SHUTDOWN_DELAY = 5 * 60
 IDLE_START_DELAY = 30.0
 NOW_PLAYING_MIN_GAP_MS = 2000
+NOW_PLAYING_MAX_DURATION_MS = 5000
 SPOTIFY_RECONNECT_NOW_PLAYING_DELAY = 5.0
 
 # ============ VARIABLES ============
@@ -230,8 +231,9 @@ def prepare_now_playing(spotify_state, lyrics_state):
     )
 
     if time_until_next_lyric >= NOW_PLAYING_MIN_GAP_MS:
-        lyrics_state["now_playing_until"] = (
-            next_lyric_time
+        lyrics_state["now_playing_until"] = min(
+            next_lyric_time,
+            current_song_time + NOW_PLAYING_MAX_DURATION_MS
         )
 
 
