@@ -11,7 +11,7 @@ from lyrics_handler import (
 from display.display_handler import (
     display_text,
     display_now_playing,
-    update_idle_display
+    update_display
 )
 
 from power_control import shut_down_pi
@@ -69,11 +69,13 @@ def reset_idle_state(idle_state):
     idle_state["is_idle"] = False
     idle_state["shutdown_due"] = False
 
+
 def get_shutdown_delay(inactivity_reason):
     if inactivity_reason == "SPOTIFY_UNREACHABLE":
         return SPOTIFY_UNREACHABLE_SHUTDOWN_DELAY
 
     return NO_PLAYBACK_SHUTDOWN_DELAY
+
 
 def update_idle_state(now, spotify_state, idle_state):
     inactivity_reason = get_inactivity_reason(spotify_state)
@@ -284,11 +286,13 @@ def main():
             shut_down_pi()
             break
 
-        update_idle_display(
+        update_display(
             now,
+            spotify_state,
+            lyrics_state,
             idle_state
         )
-
+        
         time.sleep(0.01)
 
 

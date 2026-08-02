@@ -89,3 +89,31 @@ def update_idle_display(now, idle_state):
     ):
         last_idle_message_time = now
         display_text(get_random_idle_message())
+
+
+def update_display(
+    now,
+    spotify_state,
+    lyrics_state,
+    idle_state
+):
+    # Idle presentation
+    if idle_state["is_idle"]:
+        update_idle_display(now, idle_state)
+        return
+
+    # Active playback
+    if (
+        spotify_state["isValidTrack"]
+        and spotify_state["isPlaying"]
+    ):
+        if lyrics_state["has_lyrics"]:
+            current_lyric = lyrics_state["lyrics_list"][
+                lyrics_state["current_lyric_index"]
+            ]
+
+            display_text(current_lyric)
+            return
+
+        display_now_playing(spotify_state)
+        return
