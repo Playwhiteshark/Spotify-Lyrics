@@ -106,7 +106,10 @@ def ensure_track_data_is_scrubbed(track_data):
         "scrubVersion": "scrub_version",
         "rawSyncedLyrics": "raw_synced_lyrics",
         "displaySyncedLyrics": "display_synced_lyrics",
-        "displayStatus": "display_status"
+        "displayStatus": "display_status",
+        "unsupportedRatio": "unsupported_ratio",
+        "unsupportedLineCount": "unsupported_line_count",
+        "totalLyricLineCount": "total_lyric_line_count"
     }
 
     for old_name, new_name in old_field_names.items():
@@ -177,6 +180,9 @@ def load_lyrics_for_spotify_state(spotify_state):
             save_cache(lyrics_cache)
 
         track_data = scrubbed_track_data
+
+        if track_data.get("display_status") == "missing":
+            track_data = None
 
     # The song is not cached, so fetch and scrub it.
     if track_data is None:
