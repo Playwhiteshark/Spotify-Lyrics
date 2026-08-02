@@ -129,7 +129,7 @@ def create_empty_lyrics_state(track_id=None):
         "has_lyrics": False,
         "lyric_load_attempts": 0,
         "next_lyric_retry_time": 0,
-        "lyrics_failed_permanently": False
+        "lyrics_retry_exhausted": False
     }
 
 def try_load_lyrics(spotify_state, lyrics_state):
@@ -221,7 +221,7 @@ def update_spotify_state(
     # Same track: retry lyrics if they have not loaded yet
     if (
         lyrics_state["has_lyrics"] == False
-        and lyrics_state["lyrics_failed_permanently"] == False
+        and lyrics_state["lyrics_retry_exhausted"] == False
         and now >= lyrics_state["next_lyric_retry_time"]
     ):
         print_status_once("RETRYING_LYRICS")
@@ -233,8 +233,8 @@ def update_spotify_state(
             lyrics_state["lyric_load_attempts"]
             >= MAX_LYRIC_LOAD_ATTEMPTS
         ):
-            lyrics_state["lyrics_failed_permanently"] = True
-            print_status_once("NO_SYNCED_LYRICS")
+            lyrics_state["lyrics_retry_exhausted"] = True
+            print_status_once("LYRIC_RETRIES_EXHAUSTED")
 
         else:
             print_status_once("LYRICS_NOT_LOADED_RETRYING")
