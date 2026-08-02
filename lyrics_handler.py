@@ -4,6 +4,7 @@ import time
 import requests
 
 from parser_v1 import (
+    SCRUB_VERSION,
     scrub_synced_lyrics,
     create_lyrics_and_timestamp_lists
 )
@@ -115,20 +116,20 @@ def ensure_track_data_is_scrubbed(track_data):
 
             updated_track_data.pop(old_name)
 
+    # Already scrubbed using the current format.
     if (
-        track_data.get("scrubVersion") == 1
-        and "displaySyncedLyrics" in track_data
+        updated_track_data.get("scrub_version") == SCRUB_VERSION
+        and "display_synced_lyrics" in updated_track_data
     ):
-        return track_data
+        return updated_track_data
 
-    raw_synced_lyrics = track_data.get("rawSyncedLyrics")
+    raw_synced_lyrics = updated_track_data.get("raw_synced_lyrics")
 
     if raw_synced_lyrics is None:
-        raw_synced_lyrics = track_data.get("syncedLyrics")
+        raw_synced_lyrics = updated_track_data.get("syncedLyrics")
 
     scrubbed_data = scrub_synced_lyrics(raw_synced_lyrics)
 
-    updated_track_data = dict(track_data)
     updated_track_data.pop("syncedLyrics", None)
     updated_track_data.update(scrubbed_data)
 
@@ -191,12 +192,12 @@ def load_lyrics_for_spotify_state(spotify_state):
             raw_synced_lyrics
         )
 
-    display_status = track_data.get("displayStatus", "valid")
+    display_status = track_data.get("display_status", "valid")
 
     if display_status == "unsupported_language":
         return [0], ["I can't understand that yet!"], 0, True
 
-    display_synced_lyrics = track_data.get("displaySyncedLyrics")
+    display_synced_lyrics = track_data.get("display_synced_lyrics")
 
     if display_synced_lyrics is None:
         return [0], [""], 0, False
