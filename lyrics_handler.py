@@ -202,6 +202,8 @@ def load_lyrics_for_spotify_state(spotify_state):
 
     if display_status == "unsupported_language":
         return [0], [""], 0, False, "UNSUPPORTED_LANGUAGE"
+    if display_status == "invalid_format":
+        return [0], [""], 0, False, "INVALID_FORMAT"
 
     display_synced_lyrics = track_data.get("display_synced_lyrics")
 
