@@ -9,6 +9,7 @@ def add_line(lines, lyric, start, end, add_dash=False):
 
     lines.append(line)
 
+
 def remove_parentheses(text):
     parenthesis_depth = 0
     no_parentheses_text = ""
@@ -30,6 +31,7 @@ def remove_parentheses(text):
     no_parentheses_text = " ".join(no_parentheses_text.split())
 
     return no_parentheses_text
+
 
 def format_text_to_bounds(raw_text):
     """
@@ -74,6 +76,23 @@ def fit_to_layout(text, allow_midword_splits=False, allow_row_overflow=False):
     lines = []
 
     for index, character in enumerate(text):
+
+        # Explicit newline means start a new LCD row
+        if character == "\n":
+            # Check whether another row is available
+            if current_row_number >= ROW_COUNT and not allow_row_overflow:
+                return None
+
+            # Finish the current row before the newline character
+            add_line(lines, text, line_start, index)
+
+            # Start fresh immediately after the newline
+            line_start = index + 1
+            current_word_start = index + 1
+            current_row_number += 1
+
+            continue
+
         # When we get to a space, the next index is the start of a word
         if character == " " or character == "-":
             current_word_start = index + 1
