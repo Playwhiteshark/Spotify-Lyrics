@@ -49,6 +49,7 @@ def display_text(text):
 
     write_lines_LCD(lines)
 
+
 def display_now_playing(spotify_state):
     display_text(
         "NOW PLAYING:\n"
