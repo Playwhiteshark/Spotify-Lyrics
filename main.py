@@ -1,4 +1,5 @@
 import time
+import os
 
 from spotify_handler import get_spotify_state, get_song_time
 
@@ -14,6 +15,12 @@ from display.display_handler import (
 )
 
 from power_control import shut_down_pi
+
+from status.status_handler import (
+    initialize_status_indicators,
+    update_status_indicators,
+    shutdown_status_indicators
+)
 
 display_text("Starting up...")
 
@@ -31,6 +38,8 @@ IDLE_START_DELAY = 30.0
 NOW_PLAYING_MIN_GAP_MS = 2000
 NOW_PLAYING_MAX_DURATION_MS = 5000
 SPOTIFY_RECONNECT_NOW_PLAYING_DELAY = 5.0
+
+SHUTDOWN_REQUEST_PATH = "/tmp/lyrics-shutdown-requested"
 
 # ============ VARIABLES ============
 
@@ -445,11 +454,28 @@ def update_spotify_state(
 
     return new_spotify_state, lyrics_state
 
+def shutdown_requested():
+    if not os.path.exists(SHUTDOWN_REQUEST_PATH):
+        return False
+
+    try:
+        os.remove(SHUTDOWN_REQUEST_PATH)
+    except OSError:
+        pass
+
+    return True
+
+def perform_shutdown():
+    display_text("Shutting down...\nSafe to unplug.")
+    shutdown_status_indicators()
+    shut_down_pi()
 
 # =============== MAIN ===============
 
 
 def main():
+
+    initialize_status_indicators()
 
     spotify_state = get_spotify_state()
 
@@ -517,9 +543,15 @@ def main():
             idle_state
         )
 
-        if idle_state["shutdown_due"]:
-            display_text("Shutting down... Safe to unplug.")
-            shut_down_pi()
+        update_status_indicators(
+            now,
+            spotify_state,
+            lyrics_state,
+            idle_state
+        )
+
+        if idle_state["shutdown_due"] or shutdown_requested():
+            perform_shutdown()
             break
 
         update_display(
