@@ -1,4 +1,4 @@
-from gpiozero import PWMLED
+from gpiozero import LED
 
 
 # BCM GPIO numbering
@@ -12,7 +12,7 @@ LED_PINS = {
 class StatusLED:
 
     def __init__(self, pin):
-        self.device = PWMLED(pin)
+        self.device = LED(pin)
 
         self.mode = "steady"
         self.brightness = 0.0
@@ -32,7 +32,7 @@ class StatusLED:
         self.brightness = brightness
         self.animation_started_at = None
 
-        self.device.value = brightness
+        self.device.value = brightness > 0
 
     def set_on(self, is_on):
         if is_on:
