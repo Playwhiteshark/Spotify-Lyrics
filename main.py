@@ -46,7 +46,17 @@ def print_status_once(status_text):
         last_display_state = status_text
 
 
-def get_estimated_lyric_index(current_index, timestamps, current_time):
+def get_estimated_lyric_index(
+    current_index,
+    timestamps,
+    current_time
+):
+    while (
+        current_index > 0
+        and current_time < timestamps[current_index]
+    ):
+        current_index -= 1
+
     while (
         current_index + 1 < len(timestamps)
         and current_time >= timestamps[current_index + 1]
