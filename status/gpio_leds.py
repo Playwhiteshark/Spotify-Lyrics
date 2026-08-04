@@ -1,4 +1,4 @@
-from gpiozero import PWMLED
+from gpiozero import LED
 
 
 # BCM GPIO numbering
@@ -6,15 +6,6 @@ LED_PINS = {
     "on": 17,
     "idle": 27,
     "lyrics": 22
-}
-
-
-# Physical brightness calibration.
-# Everything above this layer still thinks in terms of 0.0 -> 1.0.
-LED_MAX_BRIGHTNESS = {
-    "on": 1.0,
-    "idle": 0.75,
-    "lyrics": 1.0
 }
 
 
@@ -30,20 +21,11 @@ BLINK_OFF_TIME = 0.5
 
 class StatusLED:
 
-    def __init__(
-        self,
-        pin,
-        max_brightness=1.0
-    ):
-        self.device = PWMLED(
-            pin,
-            frequency=1000
-        )
-
-        self.max_brightness = max_brightness
+    def __init__(self, pin):
+        self.device = LED(pin)
 
         # Normal state when no animation is overriding it.
-        self.base_brightness = 0.0
+        self.base_on = False
 
         # Persistent blinking.
         self.is_blinking = False
@@ -52,18 +34,10 @@ class StatusLED:
         # Temporary flash animation.
         self.flash_started_at = None
 
-        self.device.value = 0.0
-
-    def set_brightness(self, brightness):
-        self.base_brightness = max(
-            0.0,
-            min(1.0, brightness)
-        )
+        self.device.off()
 
     def set_on(self, is_on):
-        self.set_brightness(
-            1.0 if is_on else 0.0
-        )
+        self.base_on = is_on
 
     def set_blinking(
         self,
@@ -82,7 +56,7 @@ class StatusLED:
     def flash(self, now):
         self.flash_started_at = now
 
-    def get_flash_brightness(self, now):
+    def get_flash_state(self, now):
         if self.flash_started_at is None:
             return None
 
@@ -108,14 +82,14 @@ class StatusLED:
             elapsed % cycle_duration
         )
 
-        # Start by switching off so a flash is
-        # visible even if the LED was already solid.
+        # Start OFF so the flash is visible even if
+        # the LED was already steadily on.
         if cycle_position < FLASH_OFF_TIME:
-            return 0.0
+            return False
 
-        return 1.0
+        return True
 
-    def get_blink_brightness(self, now):
+    def get_blink_state(self, now):
         if (
             not self.is_blinking
             or self.blink_started_at is None
@@ -135,33 +109,28 @@ class StatusLED:
             elapsed % cycle_duration
         )
 
-        if cycle_position < BLINK_ON_TIME:
-            return 1.0
-
-        return 0.0
+        return cycle_position < BLINK_ON_TIME
 
     def update(self, now):
-        brightness = self.base_brightness
+        is_on = self.base_on
 
-        blink_brightness = (
-            self.get_blink_brightness(now)
+        blink_state = (
+            self.get_blink_state(now)
         )
 
-        if blink_brightness is not None:
-            brightness = blink_brightness
+        if blink_state is not None:
+            is_on = blink_state
 
-        flash_brightness = (
-            self.get_flash_brightness(now)
+        flash_state = (
+            self.get_flash_state(now)
         )
 
-        # Temporary flashes take priority over everything.
-        if flash_brightness is not None:
-            brightness = flash_brightness
+        # Temporary flash takes priority over blinking
+        # and the normal steady state.
+        if flash_state is not None:
+            is_on = flash_state
 
-        self.device.value = (
-            brightness
-            * self.max_brightness
-        )
+        self.device.value = is_on
 
     def close(self):
         self.device.off()
@@ -172,10 +141,7 @@ class LEDController:
 
     def __init__(self):
         self.leds = {
-            name: StatusLED(
-                pin,
-                LED_MAX_BRIGHTNESS[name]
-            )
+            name: StatusLED(pin)
             for name, pin in LED_PINS.items()
         }
 
