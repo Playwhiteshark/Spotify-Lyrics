@@ -1,176 +1,154 @@
-STATUS_LEDS_ENABLED = True
+import time
 
-led_controller = None
-
-last_track_id = None
-last_is_playing = False
-playback_state_initialized = False
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
 
 
-def initialize_status_indicators():
-    global led_controller
-
-    if not STATUS_LEDS_ENABLED:
-        return
-
-    try:
-        from status.gpio_leds import LEDController
-
-        led_controller = LEDController()
-
-    except Exception as error:
-        print(
-            "Status LEDs could not be initialized:",
-            error
-        )
-
-        led_controller = None
-        return
-
-    # The program is now running.
-    led_controller.set_active_indicators({
-        "on"
-    })
+try:
+    from spotify_secrets import SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET
+except ImportError:
+    raise ImportError(
+        "Missing spotify_secrets.py. Copy spotify_secrets_example.py, "
+        "rename it to spotify_secrets.py, and add your Spotify client ID and secret."
+    )
 
 
-def get_active_indicators(
-    spotify_state,
-    lyrics_state,
-    idle_state
-):
-    active_indicators = {
-        "on"
+SPOTIPY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
+SCOPE = "user-read-playback-state"
+
+DELAY_FILE_PATH = "/home/ahmed/.lyrics-display-delay-ms"
+DELAY_REFRESH_INTERVAL = 0.1
+
+_cached_lyric_delay_ms = 0
+_last_delay_check = 0.0
+
+
+sp_auth = SpotifyOAuth(
+    client_id=SPOTIPY_CLIENT_ID,
+    client_secret=SPOTIPY_CLIENT_SECRET,
+    redirect_uri=SPOTIPY_REDIRECT_URI,
+    scope=SCOPE
+)
+
+sp = spotipy.Spotify(auth_manager=sp_auth)
+
+
+def get_invalid_spotify_state(state_type, error=None):
+    return {
+        "stateType": state_type,
+        "isValidTrack": False,
+        "trackID": None,
+        "artistName": None,
+        "trackName": None,
+        "albumName": None,
+        "durationMS": 0,
+        "durationS": 0,
+        "progressMS": 0,
+        "requestTime": time.perf_counter(),
+        "isPlaying": False,
+        "lrclibParams": None,
+        "error": error
     }
 
-    if idle_state["is_idle"]:
-        active_indicators.add(
-            "idle"
-        )
+
+def get_spotify_state():
+    try:
+        current = sp.current_playback()
+    except Exception as error:
+        return get_invalid_spotify_state("SPOTIFY_ERROR", error)
+
+    if current is None:
+        return get_invalid_spotify_state("NO_ACTIVE_SESSION")
+
+    item = current.get("item")
+
+    if item is None:
+        return get_invalid_spotify_state("NO_ITEM")
+
+    if item.get("type") != "track":
+        return get_invalid_spotify_state("NOT_TRACK")
+
+    try:
+        artist_name = item["artists"][0]["name"]
+        track_name = item.get("name")
+        album_name = item.get("album")["name"]
+        duration_ms = item["duration_ms"]
+
+        # SPOTIFYSTATE FORMAT:
+        return {
+            "stateType": "TRACK",
+            "isValidTrack": True,
+            "trackID": item["id"],
+            "artistName": artist_name,
+            "trackName": track_name,
+            "albumName": album_name,
+            "durationMS": duration_ms,
+            "durationS": duration_ms // 1000,
+            "progressMS": current.get("progress_ms"),
+            "requestTime": time.perf_counter(),
+            "isPlaying": current.get("is_playing"),
+
+            "lrclibParams": {
+                "artist_name": artist_name,
+                "track_name": track_name,
+                "album_name": album_name,
+                "duration": duration_ms // 1000
+            },
+            "error": None
+        }
+
+    except Exception as error:
+        return get_invalid_spotify_state("BAD_TRACK_DATA", error)
+
+
+def get_lyric_delay_ms():
+    global _cached_lyric_delay_ms
+    global _last_delay_check
+
+    now = time.perf_counter()
 
     if (
-        spotify_state["isValidTrack"]
-        and spotify_state["isPlaying"]
-        and lyrics_state["has_lyrics"]
+        now - _last_delay_check
+        < DELAY_REFRESH_INTERVAL
     ):
-        active_indicators.add(
-            "lyrics"
+        return _cached_lyric_delay_ms
+
+    _last_delay_check = now
+
+    try:
+        with open(
+            DELAY_FILE_PATH,
+            "r",
+            encoding="utf-8"
+        ) as delay_file:
+            _cached_lyric_delay_ms = int(
+                delay_file.read().strip()
+            )
+
+    except (FileNotFoundError, ValueError, OSError):
+        _cached_lyric_delay_ms = 0
+
+    return _cached_lyric_delay_ms
+
+
+def get_song_time(spotify_state):
+    if spotify_state["isPlaying"] == False:
+        song_time_ms = spotify_state["progressMS"]
+
+    else:
+        elapsed_ms = (
+            time.perf_counter()
+            - spotify_state["requestTime"]
+        ) * 1000
+
+        song_time_ms = (
+            spotify_state["progressMS"]
+            + elapsed_ms
         )
 
-    return active_indicators
+    lyric_delay_ms = get_lyric_delay_ms()
 
-
-def should_flash_lyrics_indicator(
-    spotify_state
-):
-    global last_track_id
-    global last_is_playing
-    global playback_state_initialized
-
-    is_valid_track = (
-        spotify_state["isValidTrack"]
+    return max(
+        0,
+        song_time_ms - lyric_delay_ms
     )
-
-    is_playing = (
-        is_valid_track
-        and spotify_state["isPlaying"]
-    )
-
-    current_track_id = (
-        spotify_state["trackID"]
-        if is_valid_track
-        else None
-    )
-
-    # Establish the initial playback state without
-    # flashing when the program first starts.
-    if not playback_state_initialized:
-        last_track_id = current_track_id
-        last_is_playing = is_playing
-        playback_state_initialized = True
-        return False
-
-    track_changed = (
-        current_track_id is not None
-        and last_track_id is not None
-        and current_track_id != last_track_id
-    )
-
-    playback_resumed = (
-        current_track_id is not None
-        and current_track_id == last_track_id
-        and is_playing
-        and not last_is_playing
-    )
-
-    # Keep the last known valid track so a temporary
-    # Spotify outage does not erase track identity.
-    if current_track_id is not None:
-        last_track_id = current_track_id
-
-    last_is_playing = is_playing
-
-    return (
-        track_changed
-        or playback_resumed
-    )
-
-
-def update_status_indicators(
-    now,
-    spotify_state,
-    lyrics_state,
-    idle_state
-):
-    if led_controller is None:
-        return
-
-    active_indicators = (
-        get_active_indicators(
-            spotify_state,
-            lyrics_state,
-            idle_state
-        )
-    )
-
-    led_controller.set_active_indicators(
-        active_indicators
-    )
-
-    # Blue: quick double flash on track change/resume.
-    if should_flash_lyrics_indicator(
-        spotify_state
-    ):
-        led_controller.flash_indicator(
-            "lyrics",
-            now
-        )
-
-    # Yellow: blink while Spotify cannot be reached.
-    spotify_unreachable = (
-        idle_state["reason"]
-        == "SPOTIFY_UNREACHABLE"
-    )
-
-    led_controller.set_indicator_blinking(
-        "idle",
-        spotify_unreachable,
-        now
-    )
-
-    led_controller.update(now)
-
-
-def shutdown_status_indicators():
-    global led_controller
-    global last_track_id
-    global last_is_playing
-    global playback_state_initialized
-
-    if led_controller is not None:
-        led_controller.close()
-
-    led_controller = None
-
-    last_track_id = None
-    last_is_playing = False
-    playback_state_initialized = False

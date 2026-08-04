@@ -2,6 +2,10 @@ STATUS_LEDS_ENABLED = True
 
 led_controller = None
 
+last_track_id = None
+last_is_playing = False
+playback_state_initialized = False
+
 
 def initialize_status_indicators():
     global led_controller
@@ -14,7 +18,7 @@ def initialize_status_indicators():
 
         led_controller = LEDController()
 
-    except (ImportError, OSError) as error:
+    except Exception as error:
         print(
             "Status LEDs could not be initialized:",
             error
@@ -55,6 +59,62 @@ def get_active_indicators(
     return active_indicators
 
 
+def should_flash_lyrics_indicator(
+    spotify_state
+):
+    global last_track_id
+    global last_is_playing
+    global playback_state_initialized
+
+    is_valid_track = (
+        spotify_state["isValidTrack"]
+    )
+
+    is_playing = (
+        is_valid_track
+        and spotify_state["isPlaying"]
+    )
+
+    current_track_id = (
+        spotify_state["trackID"]
+        if is_valid_track
+        else None
+    )
+
+    # Establish the initial playback state without
+    # flashing when the program first starts.
+    if not playback_state_initialized:
+        last_track_id = current_track_id
+        last_is_playing = is_playing
+        playback_state_initialized = True
+        return False
+
+    track_changed = (
+        current_track_id is not None
+        and last_track_id is not None
+        and current_track_id != last_track_id
+    )
+
+    playback_resumed = (
+        current_track_id is not None
+        and current_track_id == last_track_id
+        and is_playing
+        and not last_is_playing
+    )
+
+    # Keep the last known valid track so a temporary
+    # Spotify outage does not erase track identity.
+    if current_track_id is not None:
+        last_track_id = current_track_id
+
+    last_is_playing = is_playing
+
+    return (
+        track_changed
+        or playback_resumed
+    )
+
+
 def update_status_indicators(
     now,
     spotify_state,
@@ -64,14 +124,37 @@ def update_status_indicators(
     if led_controller is None:
         return
 
-    active_indicators = get_active_indicators(
-        spotify_state,
-        lyrics_state,
-        idle_state
+    active_indicators = (
+        get_active_indicators(
+            spotify_state,
+            lyrics_state,
+            idle_state
+        )
     )
 
     led_controller.set_active_indicators(
         active_indicators
+    )
+
+    # Blue: quick double flash on track change/resume.
+    if should_flash_lyrics_indicator(
+        spotify_state
+    ):
+        led_controller.flash_indicator(
+            "lyrics",
+            now
+        )
+
+    # Yellow: blink while Spotify cannot be reached.
+    spotify_unreachable = (
+        idle_state["reason"]
+        == "SPOTIFY_UNREACHABLE"
+    )
+
+    led_controller.set_indicator_blinking(
+        "idle",
+        spotify_unreachable,
+        now
     )
 
     led_controller.update(now)
@@ -79,9 +162,15 @@ def update_status_indicators(
 
 def shutdown_status_indicators():
     global led_controller
+    global last_track_id
+    global last_is_playing
+    global playback_state_initialized
 
-    if led_controller is None:
-        return
+    if led_controller is not None:
+        led_controller.close()
 
-    led_controller.close()
     led_controller = None
+
+    last_track_id = None
+    last_is_playing = False
+    playback_state_initialized = False
