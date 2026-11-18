@@ -12,3 +12,4 @@ lyrics_analyser.py
 .vscode/
 .DS_Store
 Thumbs.db
+idle_messages_local.py

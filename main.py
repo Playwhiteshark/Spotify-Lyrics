@@ -27,27 +27,25 @@ MAX_LYRIC_LOAD_ATTEMPTS = 6
 AUTO_SHUTDOWN_DELAY = 60 * 60
 IDLE_MESSAGE_INTERVAL = 15.0
 IDLE_START_DELAY = 30.0
-IDLE_MESSAGES = [
+DEFAULT_IDLE_MESSAGES = [
     "Waiting...",
     "Nothing to sing yet.",
     "It says 'gullible' on the ceiling.",
-    "Beware the Aydin curse.",
     "Play something!",
     "What if I don't like lyrics in my car?",
-    "The Bertmobile karaoke system is idle.",
-    "Have you heard of The Pigeons?",
-    "Horrible nicknames like Adam Cheese and Uncle Taha...",
     "Lyrics machine is taking a nap.",
-    "Welcome to the Bertmobile!",
     "Imagine a cool animation here.",
     "No bangers detected.",
-    "It's like a fleck!",
-    "I just an Eva...",
-    "Watch Dexter!",
     "It's never Lupus.",
     "That's way too far...",
     "Are you five years old?"
 ]
+
+# Optional personal messages: create idle_messages_local.py (gitignored) defining IDLE_MESSAGES.
+try:
+    from idle_messages_local import IDLE_MESSAGES
+except ImportError:
+    IDLE_MESSAGES = DEFAULT_IDLE_MESSAGES
 
 # ============ VARIABLES ============
 
