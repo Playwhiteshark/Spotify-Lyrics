@@ -12,7 +12,7 @@ from lyrics_handler import (
 from formatter import format_text_to_bounds
 from display.lcd import write_lines_LCD
 
-from power_control import get_auto_shutdown_delay, shut_down_pi
+from power_control import shut_down_pi
 
 write_lines_LCD(["Starting up..."])
 
@@ -24,7 +24,7 @@ SPOTIFY_INTERVAL = 2.0    # 2 seconds
 TIME_RESYNC_THRESHOLD_MS = 250
 LYRIC_RETRY_INTERVAL = 5.0
 MAX_LYRIC_LOAD_ATTEMPTS = 6
-AUTO_SHUTDOWN_DELAY = get_auto_shutdown_delay()
+AUTO_SHUTDOWN_DELAY = 60 * 60
 IDLE_MESSAGE_INTERVAL = 15.0
 IDLE_START_DELAY = 30.0
 IDLE_MESSAGES = [
@@ -118,10 +118,7 @@ def update_idle_mode(now, spotify_state, lyrics_state):
     if idle_start_time is None:
         idle_start_time = now
 
-    if (
-        AUTO_SHUTDOWN_DELAY is not None
-        and now - idle_start_time >= AUTO_SHUTDOWN_DELAY
-    ):
+    if now - idle_start_time >= AUTO_SHUTDOWN_DELAY:
         display_text("Shutting down... Safe to unplug.")
         shut_down_pi()
         return
