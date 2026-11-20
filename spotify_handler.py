@@ -16,6 +16,12 @@ except ImportError:
 SPOTIPY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 SCOPE = "user-read-playback-state"
 
+DELAY_FILE_PATH = "/home/ahmed/.lyrics-display-delay-ms"
+DELAY_REFRESH_INTERVAL = 0.1
+
+_cached_lyric_delay_ms = 0
+_last_delay_check = 0.0
+
 
 sp_auth = SpotifyOAuth(
     client_id=SPOTIPY_CLIENT_ID,
@@ -95,13 +101,54 @@ def get_spotify_state():
         return get_invalid_spotify_state("BAD_TRACK_DATA", error)
 
 
+def get_lyric_delay_ms():
+    global _cached_lyric_delay_ms
+    global _last_delay_check
+
+    now = time.perf_counter()
+
+    if (
+        now - _last_delay_check
+        < DELAY_REFRESH_INTERVAL
+    ):
+        return _cached_lyric_delay_ms
+
+    _last_delay_check = now
+
+    try:
+        with open(
+            DELAY_FILE_PATH,
+            "r",
+            encoding="utf-8"
+        ) as delay_file:
+            _cached_lyric_delay_ms = int(
+                delay_file.read().strip()
+            )
+
+    except (FileNotFoundError, ValueError, OSError):
+        _cached_lyric_delay_ms = 0
+
+    return _cached_lyric_delay_ms
+
+
 def get_song_time(spotify_state):
     if spotify_state["isPlaying"] == False:
-        return spotify_state["progressMS"]
+        song_time_ms = spotify_state["progressMS"]
 
-    elapsed_ms = (
-        time.perf_counter() - spotify_state["requestTime"]
-    ) * 1000
+    else:
+        elapsed_ms = (
+            time.perf_counter()
+            - spotify_state["requestTime"]
+        ) * 1000
 
-    song_time_ms = spotify_state["progressMS"] + elapsed_ms
-    return song_time_ms
+        song_time_ms = (
+            spotify_state["progressMS"]
+            + elapsed_ms
+        )
+
+    lyric_delay_ms = get_lyric_delay_ms()
+
+    return max(
+        0,
+        song_time_ms - lyric_delay_ms
+    )

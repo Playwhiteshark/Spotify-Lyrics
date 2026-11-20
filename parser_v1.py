@@ -20,7 +20,7 @@ import re
 import unicodedata
 
 
-SCRUB_VERSION = 1
+SCRUB_VERSION = 2
 
 PARTIALLY_SUPPORTED_THRESHOLD = 0.10
 UNSUPPORTED_LANGUAGE_THRESHOLD = 0.25
@@ -285,11 +285,22 @@ def scrub_synced_lyrics(raw_synced_lyrics):
         unsupported_line_count
         total_lyric_line_count
         scrub_version
+
+    display_status may be:
+        missing
+        invalid_format
+        unsupported_language
+        partially_supported
+        valid
     """
 
-    if raw_synced_lyrics is None:
+    # LRCLIB gave us no synced lyric data at all.
+    if (
+        raw_synced_lyrics is None
+        or raw_synced_lyrics.strip() == ""
+    ):
         return {
-            "raw_synced_lyrics": None,
+            "raw_synced_lyrics": raw_synced_lyrics,
             "display_synced_lyrics": None,
             "display_status": "missing",
             "unsupported_ratio": 0.0,
@@ -305,61 +316,120 @@ def scrub_synced_lyrics(raw_synced_lyrics):
     unsupported_line_count = 0
 
     for raw_line in raw_synced_lyrics.splitlines():
-        # Remove LRC metadata such as [ti:], [ar:] and [offset:].
+
+        # Ignore normal LRC metadata such as:
+        # [ti:Song]
+        # [ar:Artist]
+        # [offset:0]
         if LRC_METADATA_PATTERN.match(raw_line):
             continue
 
-        timestamp_match = LEADING_TIMESTAMP_PATTERN.match(raw_line)
+        timestamp_match = LEADING_TIMESTAMP_PATTERN.match(
+            raw_line
+        )
 
+        # Ignore lines that do not contain a valid leading timestamp.
         if timestamp_match is None:
-            # Ignore malformed non-timed lines rather than caching them as lyrics.
             continue
 
-        seconds = float(timestamp_match.group("seconds"))
+        try:
+            seconds = float(
+                timestamp_match.group("seconds")
+            )
+        except ValueError:
+            continue
 
+        # Invalid LRC timestamp.
         if seconds >= 60:
             continue
 
-        timestamp_text = timestamp_match.group(0).strip()
-        lyric_text = raw_line[timestamp_match.end():]
-
-        clean_text, line_supported_count, line_unsupported_count = clean_lyric_text(
-            lyric_text
+        timestamp_text = (
+            timestamp_match.group(0).strip()
         )
 
-        supported_visible_count += line_supported_count
-        unsupported_visible_count += line_unsupported_count
+        lyric_text = raw_line[
+            timestamp_match.end():
+        ]
+
+        (
+            clean_text,
+            line_supported_count,
+            line_unsupported_count
+        ) = clean_lyric_text(lyric_text)
+
+        supported_visible_count += (
+            line_supported_count
+        )
+
+        unsupported_visible_count += (
+            line_unsupported_count
+        )
 
         if line_unsupported_count > 0:
             unsupported_line_count += 1
 
-        # Preserve the timestamp even when the lyric is blank.
+        # Keep timed blank lines.
+        #
+        # These are meaningful because they intentionally
+        # clear the LCD during instrumental sections.
         if clean_text == "":
             output_lines.append(timestamp_text)
-        else:
-            output_lines.append(timestamp_text + " " + clean_text)
 
-    total_visible_count = supported_visible_count + unsupported_visible_count
+        else:
+            output_lines.append(
+                timestamp_text + " " + clean_text
+            )
+
+    total_visible_count = (
+        supported_visible_count
+        + unsupported_visible_count
+    )
 
     if total_visible_count == 0:
         unsupported_ratio = 0.0
-    else:
-        unsupported_ratio = unsupported_visible_count / total_visible_count
 
-    if unsupported_ratio > UNSUPPORTED_LANGUAGE_THRESHOLD:
+    else:
+        unsupported_ratio = (
+            unsupported_visible_count
+            / total_visible_count
+        )
+
+    # LRCLIB returned something, but we could not extract
+    # even one usable timed lyric entry from it.
+    if len(output_lines) == 0:
+        display_status = "invalid_format"
+
+    elif (
+        unsupported_ratio
+        > UNSUPPORTED_LANGUAGE_THRESHOLD
+    ):
         display_status = "unsupported_language"
-    elif unsupported_ratio >= PARTIALLY_SUPPORTED_THRESHOLD:
+
+    elif (
+        unsupported_ratio
+        >= PARTIALLY_SUPPORTED_THRESHOLD
+    ):
         display_status = "partially_supported"
+
     else:
         display_status = "valid"
 
     return {
         "raw_synced_lyrics": raw_synced_lyrics,
-        "display_synced_lyrics": "\n".join(output_lines),
+        "display_synced_lyrics": (
+            "\n".join(output_lines)
+        ),
         "display_status": display_status,
-        "unsupported_ratio": round(unsupported_ratio, 6),
-        "unsupported_line_count": unsupported_line_count,
-        "total_lyric_line_count": len(output_lines),
+        "unsupported_ratio": round(
+            unsupported_ratio,
+            6
+        ),
+        "unsupported_line_count": (
+            unsupported_line_count
+        ),
+        "total_lyric_line_count": len(
+            output_lines
+        ),
         "scrub_version": SCRUB_VERSION
     }
 

@@ -191,7 +191,7 @@ def load_lyrics_for_spotify_state(spotify_state):
         )
 
         if raw_synced_lyrics is None:
-            return [0], [""], 0, False
+            return [0], [""], 0, False, None
 
         track_data = save_lyrics_to_cache(
             spotify_state,
@@ -201,12 +201,14 @@ def load_lyrics_for_spotify_state(spotify_state):
     display_status = track_data.get("display_status", "valid")
 
     if display_status == "unsupported_language":
-        return [0], ["I can't understand that yet!"], 0, True
+        return [0], [""], 0, False, "UNSUPPORTED_LANGUAGE"
+    if display_status == "invalid_format":
+        return [0], [""], 0, False, "INVALID_FORMAT"
 
     display_synced_lyrics = track_data.get("display_synced_lyrics")
 
     if display_synced_lyrics is None:
-        return [0], [""], 0, False
+        return [0], [""], 0, False, None
 
     timestamp_list, lyrics_list = create_lyrics_and_timestamp_lists(
         display_synced_lyrics
@@ -221,5 +223,6 @@ def load_lyrics_for_spotify_state(spotify_state):
         timestamp_list,
         lyrics_list,
         current_lyric_index,
-        True
+        True,
+        None
     )
