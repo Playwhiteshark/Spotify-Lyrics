@@ -1,6 +1,5 @@
 import time
 import os
-import logging
 
 from spotify_handler import get_spotify_state, get_song_time
 
@@ -15,7 +14,7 @@ from display.display_handler import (
     update_display
 )
 
-from power_control import parse_auto_shutdown_seconds, shut_down_pi
+from power_control import shut_down_pi
 
 from status.status_handler import (
     initialize_status_indicators,
@@ -33,12 +32,7 @@ SPOTIFY_INTERVAL = 2.0    # 2 seconds
 TIME_RESYNC_THRESHOLD_MS = 250
 LYRIC_RETRY_INTERVAL = 5.0
 MAX_LYRIC_LOAD_ATTEMPTS = 6
-NO_PLAYBACK_SHUTDOWN_DELAY, AUTO_SHUTDOWN_SETTING_VALID = (
-    parse_auto_shutdown_seconds(
-        os.getenv("LYRICS_AUTO_SHUTDOWN_SECONDS"),
-        60 * 60
-    )
-)
+NO_PLAYBACK_SHUTDOWN_DELAY = 60 * 60
 SPOTIFY_UNREACHABLE_SHUTDOWN_DELAY = 5 * 60
 IDLE_START_DELAY = 30.0
 NOW_PLAYING_MIN_GAP_MS = 2000
@@ -46,12 +40,6 @@ NOW_PLAYING_MAX_DURATION_MS = 5000
 SPOTIFY_RECONNECT_NOW_PLAYING_DELAY = 5.0
 
 SHUTDOWN_REQUEST_PATH = "/tmp/lyrics-shutdown-requested"
-
-if not AUTO_SHUTDOWN_SETTING_VALID:
-    logging.warning(
-        "Invalid LYRICS_AUTO_SHUTDOWN_SECONDS=%r; using default shutdown delays",
-        os.getenv("LYRICS_AUTO_SHUTDOWN_SECONDS")
-    )
 
 # ============ VARIABLES ============
 
@@ -104,9 +92,6 @@ def reset_idle_state(idle_state):
 
 
 def get_shutdown_delay(inactivity_reason):
-    if NO_PLAYBACK_SHUTDOWN_DELAY is None:
-        return None
-
     if inactivity_reason == "SPOTIFY_UNREACHABLE":
         return SPOTIFY_UNREACHABLE_SHUTDOWN_DELAY
 
@@ -140,8 +125,7 @@ def update_idle_state(now, spotify_state, idle_state):
     )
 
     idle_state["shutdown_due"] = (
-        shutdown_delay is not None
-        and inactive_time >= shutdown_delay
+        inactive_time >= shutdown_delay
     )
 
 
